@@ -8,49 +8,53 @@ import { v4 as uuidv4 } from "uuid"
 import { Button } from "@/components/ui/button"
 
 /**
- * Upload page component
- * - Handles video file selection and upload to Firebase Storage
- * - Saves video metadata to Firestore posts collection
- * - Includes form for title, description, and comedy category
- * - Shows video preview before upload
- * - Mobile-optimized upload experience
+ * Professional upload page component with modern UI
+ * - Centered layout with dashed border upload area
+ * - Character count indicators for title and description
+ * - Video preview with proper sizing
+ * - Clean form design matching modern upload interfaces
  */
 export default function UploadPage() {
     // Form state management
     const [videoFile, setVideoFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
     const [description, setDescription] = useState("")
-    const [category, setCategory] = useState("Stand-up") // Default to most common comedy type
+    const [category, setCategory] = useState("Stand-up")
     const [uploading, setUploading] = useState(false)
 
-
+    // Character limits
+    const TITLE_LIMIT = 100
+    const DESCRIPTION_LIMIT = 500
 
     /**
-     * Handle video upload process
-     * 1. Validate required fields (video file, title, authenticated user)
-     * 2. Upload video file to Firebase Storage
-     * 3. Save post metadata to Firestore
-     * 4. Reset form on success
+     * Handle video file selection from file input or drag & drop
+     */
+    const handleFileSelect = (file: File) => {
+        if (file && file.type.startsWith('video/')) {
+            setVideoFile(file)
+        } else {
+            alert('Please select a valid video file')
+        }
+    }
+
+    /**
+     * Handle video upload process with validation and error handling
      */
     const handleUpload = async () => {
-        // Validation - ensure we have required data
         if (!videoFile || !auth.currentUser || !title.trim()) {
-            alert("Title is required.")
+            alert("Please select a video file and enter a title")
             return
         }
 
         setUploading(true)
 
         try {
-            // Generate unique file ID for storage
             const fileId = uuidv4()
             const fileRef = ref(storage, `videos/${fileId}`)
 
-            // Upload video file to Firebase Storage
             await uploadBytes(fileRef, videoFile)
             const url = await getDownloadURL(fileRef)
 
-            // Save post data to Firestore
             await addDoc(collection(db, "posts"), {
                 title: title.trim(),
                 description: description.trim(),
@@ -58,95 +62,174 @@ export default function UploadPage() {
                 userId: auth.currentUser.uid,
                 timestamp: serverTimestamp(),
                 category,
-                fileId, // Store fileId for future deletion capability
+                fileId,
             })
 
-            // Success - reset form
-            alert("✅ Uploaded!")
+            alert("✅ Video uploaded successfully!")
             setTitle("")
             setDescription("")
             setVideoFile(null)
         } catch (err) {
             console.error("Upload error:", err)
-            alert("❌ Upload failed")
+            alert("❌ Upload failed. Please try again.")
         } finally {
             setUploading(false)
         }
     }
 
-
     return (
-        <div className="min-h-screen bg-black text-white p-4 flex flex-col gap-4 max-w-md mx-auto">
-            {/* Page header */}
-            <h1 className="text-2xl font-bold">Upload Video</h1>
+        <div className="min-h-screen bg-black text-white p-6">
+            <div className="max-w-2xl mx-auto">
+                {/* Header section */}
+                <div className="text-center mb-8">
+                    <h1 className="text-4xl font-bold mb-2">Create Video</h1>
+                    <p className="text-gray-400 text-lg">Share your creativity with the world</p>
+                </div>
 
-            {/* Video file input */}
-            <input
-                type="file"
-                accept="video/*"
-                onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                        setVideoFile(e.target.files[0])
-                    }
-                }}
-                className="text-black"
-            />
+                {/* Upload area with dashed border */}
+                <div className="mb-8">
+                    <div 
+                        className={`border-2 border-dashed border-gray-600 rounded-xl p-8 text-center transition-colors hover:border-gray-500 ${
+                            videoFile ? 'border-blue-500 bg-blue-500/5' : ''
+                        }`}
+                        onDragOver={(e) => {
+                            e.preventDefault()
+                            e.currentTarget.classList.add('border-blue-500', 'bg-blue-500/5')
+                        }}
+                        onDragLeave={(e) => {
+                            e.currentTarget.classList.remove('border-blue-500', 'bg-blue-500/5')
+                        }}
+                        onDrop={(e) => {
+                            e.preventDefault()
+                            e.currentTarget.classList.remove('border-blue-500', 'bg-blue-500/5')
+                            const file = e.dataTransfer.files[0]
+                            if (file) handleFileSelect(file)
+                        }}
+                    >
+                        {!videoFile ? (
+                            <div className="space-y-4">
+                                <div className="text-6xl text-gray-400">📹</div>
+                                <div>
+                                    <p className="text-xl text-gray-300 mb-2">Drop your video here</p>
+                                    <p className="text-gray-500 mb-4">or</p>
+                                    <label className="inline-block">
+                                        <input
+                                            type="file"
+                                            accept="video/*"
+                                            onChange={(e) => {
+                                                if (e.target.files?.[0]) {
+                                                    handleFileSelect(e.target.files[0])
+                                                }
+                                            }}
+                                            className="hidden"
+                                        />
+                                        <div className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg cursor-pointer font-medium transition-colors">
+                                            Choose File
+                                        </div>
+                                    </label>
+                                </div>
+                                <p className="text-sm text-gray-500">MP4, MOV, AVI up to 100MB</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <video
+                                    src={URL.createObjectURL(videoFile)}
+                                    controls
+                                    className="w-full max-w-md mx-auto rounded-lg"
+                                    style={{ maxHeight: '300px' }}
+                                />
+                                <div className="flex items-center justify-center gap-4">
+                                    <span className="text-green-400">✓ {videoFile.name}</span>
+                                    <button
+                                        onClick={() => setVideoFile(null)}
+                                        className="text-red-400 hover:text-red-300 text-sm underline"
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
 
-            {/* Video preview - show selected video before upload */}
-            {videoFile && (
-                <video
-                    src={URL.createObjectURL(videoFile)}
-                    controls
-                    className="w-full h-64 object-cover rounded-lg"
-                />
-            )}
+                {/* Form fields */}
+                <div className="space-y-6">
+                    {/* Title field with character counter */}
+                    <div>
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-lg font-medium">Title *</label>
+                            <span className={`text-sm ${title.length > TITLE_LIMIT ? 'text-red-400' : 'text-gray-400'}`}>
+                                {title.length}/{TITLE_LIMIT}
+                            </span>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Enter video title"
+                            value={title}
+                            onChange={(e) => {
+                                if (e.target.value.length <= TITLE_LIMIT) {
+                                    setTitle(e.target.value)
+                                }
+                            }}
+                            className="w-full p-4 rounded-lg bg-gray-800 border border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none transition-colors"
+                        />
+                    </div>
 
+                    {/* Description field with character counter */}
+                    <div>
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-lg font-medium">Description</label>
+                            <span className={`text-sm ${description.length > DESCRIPTION_LIMIT ? 'text-red-400' : 'text-gray-400'}`}>
+                                {description.length}/{DESCRIPTION_LIMIT}
+                            </span>
+                        </div>
+                        <textarea
+                            placeholder="Tell your audience about your video"
+                            value={description}
+                            onChange={(e) => {
+                                if (e.target.value.length <= DESCRIPTION_LIMIT) {
+                                    setDescription(e.target.value)
+                                }
+                            }}
+                            rows={4}
+                            className="w-full p-4 rounded-lg bg-gray-800 border border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none transition-colors resize-none"
+                        />
+                    </div>
 
+                    {/* Category selector */}
+                    <div>
+                        <label className="text-lg font-medium block mb-2">Category</label>
+                        <select
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            className="w-full p-4 rounded-lg bg-gray-800 border border-gray-600 text-white focus:border-blue-500 focus:outline-none transition-colors"
+                        >
+                            <option value="Stand-up">🎤 Stand-up</option>
+                            <option value="Impression">🎭 Impression</option>
+                            <option value="Rant">💬 Rant</option>
+                            <option value="Sketch">🎬 Sketch</option>
+                            <option value="Music">🎵 Music</option>
+                            <option value="Other">📝 Other</option>
+                        </select>
+                    </div>
 
-            {/* Title input - required field */}
-            <input
-                type="text"
-                placeholder="Title (required)"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="text-black p-2 rounded"
-            />
-
-            {/* Description input - optional */}
-            <textarea
-                placeholder="Description (optional)"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="text-black p-2 rounded"
-                rows={3}
-            />
-
-            {/* Comedy category selector */}
-            <div>
-                <label className="text-sm text-gray-400 block mb-1">Comedy Category</label>
-                <select
-                    className="text-black p-2 rounded w-full"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                >
-                    <option value="Stand-up">Stand-up</option>
-                    <option value="Impression">Impression</option>
-                    <option value="Rant">Rant</option>
-                    <option value="Sketch">Sketch</option>
-                    <option value="Music">Music</option>
-                    <option value="Other">Other</option>
-                </select>
+                    {/* Upload button */}
+                    <Button
+                        onClick={handleUpload}
+                        disabled={uploading || !videoFile || !title.trim() || title.length > TITLE_LIMIT || description.length > DESCRIPTION_LIMIT}
+                        className="w-full py-4 text-lg font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+                    >
+                        {uploading ? (
+                            <span className="flex items-center justify-center gap-2">
+                                <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+                                Uploading...
+                            </span>
+                        ) : (
+                            "Publish Video"
+                        )}
+                    </Button>
+                </div>
             </div>
-
-
-            {/* Upload button - disabled during upload or if no video selected */}
-            <Button 
-                onClick={handleUpload} 
-                disabled={uploading || !videoFile || !title.trim()}
-                className="w-full"
-            >
-                {uploading ? "Uploading..." : "Upload Video"}
-            </Button>
         </div>
     )
 }

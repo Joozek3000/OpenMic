@@ -58,7 +58,7 @@ export default function RootLayout({
               color: '#ffffff', // White for active/primary nav item
               textDecoration: 'none'
             }}>
-              <div>🏠</div>
+              <div style={{fontSize: '28px', fontWeight: 'bold'}}>⌂</div>
               <span style={{fontSize: '12px'}}>Home</span>
             </a>
             {/* Search button - for finding content */}
@@ -71,7 +71,7 @@ export default function RootLayout({
               color: '#9ca3af', // Gray for inactive nav items
               textDecoration: 'none'
             }}>
-              <div>🔍</div>
+              <div style={{fontSize: '28px', fontWeight: 'bold'}}>⚲</div>
               <span style={{fontSize: '12px'}}>Search</span>
             </a>
             {/* Upload button - special styling with white background */}
@@ -84,15 +84,15 @@ export default function RootLayout({
               textDecoration: 'none'
             }}>
               <div style={{
-                width: '32px',
-                height: '32px',
+                width: '36px',
+                height: '36px',
                 backgroundColor: 'white',
                 borderRadius: '8px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
               }}>
-                <span style={{color: 'black', fontSize: '20px', fontWeight: 'bold'}}>+</span>
+                <span style={{color: 'black', fontSize: '28px', fontWeight: 'bold'}}>+</span>
               </div>
             </a>
             {/* Explore button - placeholder for future feature */}
@@ -105,7 +105,7 @@ export default function RootLayout({
               color: '#9ca3af', // Gray for disabled/placeholder
               textDecoration: 'none'
             }}>
-              <div>🧭</div>
+              <div style={{fontSize: '28px', fontWeight: 'bold'}}>◉</div>
               <span style={{fontSize: '12px'}}>Explore</span>
             </a>
             {/* Profile button - user account management */}
@@ -118,7 +118,7 @@ export default function RootLayout({
               color: '#9ca3af', // Gray for inactive nav items
               textDecoration: 'none'
             }}>
-              <div>👤</div>
+              <div style={{fontSize: '28px', fontWeight: 'bold'}}>◐</div>
               <span style={{fontSize: '12px'}}>Profile</span>
             </a>
           </div>
