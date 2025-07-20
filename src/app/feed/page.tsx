@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { db, auth } from "@/lib/firebase"
+import { db, auth, storage } from "@/lib/firebase"
 import {
     collection,
     getDocs,
@@ -12,19 +12,15 @@ import {
     doc,
     addDoc,
     serverTimestamp,
-    getFirestore,
     getDoc,
-
 } from "firebase/firestore"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatDistanceToNow } from "date-fns"
 import { deleteObject, ref } from "firebase/storage"
-import { storage } from "@/lib/firebase"
 
-
-
+// TypeScript interfaces for data structures
 interface Post {
     id: string;
     title: string;
@@ -37,19 +33,27 @@ interface Post {
     fileId?: string;
 }
 
-
-
 interface Comment {
-    id: string
-    text: string
-    userId: string
+    id: string;
+    text: string;
+    userId: string;
 }
 
+/**
+ * Feed page component - main content discovery interface
+ * - Displays all comedy videos in reverse chronological order
+ * - Includes like/unlike functionality for posts
+ * - Comment system with add/delete capabilities
+ * - User display names fetched and cached
+ * - Post deletion for content owners
+ * - Mobile-first responsive grid layout
+ */
 export default function FeedPage() {
-    const [userNames, setUserNames] = useState<Record<string, string>>({})
-    const [posts, setPosts] = useState<Post[]>([])
-    const [comments, setComments] = useState<Record<string, Comment[]>>({})
-    const [newComments, setNewComments] = useState<Record<string, string>>({})
+    // State management for posts, comments, and user data
+    const [userNames, setUserNames] = useState<Record<string, string>>({}) // Cache user display names
+    const [posts, setPosts] = useState<Post[]>([]) // All posts from Firestore
+    const [comments, setComments] = useState<Record<string, Comment[]>>({}) // Comments by post ID
+    const [newComments, setNewComments] = useState<Record<string, string>>({}) // Form state for new comments
     const currentUser = auth.currentUser?.uid
 
     useEffect(() => {
