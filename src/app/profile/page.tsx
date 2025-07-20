@@ -52,7 +52,7 @@ export default function ProfilePage() {
     }
 
     return (
-        <div className="min-h-screen bg-black text-white p-6 max-w-md mx-auto">
+        <div className="min-h-screen bg-black text-white p-6 max-w-md mx-auto" style={{backgroundColor: '#000000', color: '#ffffff'}}>
             {/* Page header */}
             <h1 className="text-2xl font-bold mb-4">Your Profile</h1>
 

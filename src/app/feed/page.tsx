@@ -178,7 +178,7 @@ export default function FeedPage() {
 
 
     return (
-        <div className="min-h-screen bg-black text-white p-6">
+        <div className="min-h-screen bg-black text-white p-6" style={{backgroundColor: '#000000'}}>
             <h1 className="text-3xl font-bold mb-6">🔥 OpenMic Feed</h1>
 
             <div className="flex flex-col gap-8">

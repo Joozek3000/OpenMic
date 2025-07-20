@@ -55,3 +55,13 @@ a {
   75% { transform: scale(1.15); }
   100% { transform: scale(1.1); }
 }
+
+/* Upload page specific styling to override global dark theme */
+.upload-page-container {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+.upload-page-container * {
+  color: inherit;
+}

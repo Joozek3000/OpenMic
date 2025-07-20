@@ -6,7 +6,7 @@
  */
 export default function SearchPage() {
     return (
-        <div className="min-h-screen bg-black text-white p-6">
+        <div className="min-h-screen bg-black text-white p-6" style={{backgroundColor: '#000000', color: '#ffffff'}}>
             {/* Page header with search icon */}
             <h1 className="text-3xl font-bold mb-6">🔍 Search</h1>
             

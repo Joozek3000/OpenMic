@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
  */
 export default function Home() {
   return (
-    <main className="flex flex-col min-h-screen items-center justify-center gap-4 bg-black text-white">
+    <main className="flex flex-col min-h-screen items-center justify-center gap-4 bg-black text-white" style={{backgroundColor: '#000000', color: '#ffffff'}}>
       {/* App title and branding */}
       <h1 className="text-2xl">Welcome to OpenMic</h1>
       
