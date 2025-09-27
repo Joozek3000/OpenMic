@@ -39,42 +39,57 @@ export default function ProfilePage() {
     // Save display name to Firestore
     const saveName = async () => {
         if (!user || !displayName.trim()) return
-        
-        // Save to users collection with current timestamp
+
+        const trimmedName = displayName.trim()
+
+        // Save to users collection without wiping existing fields
         const ref = doc(db, "users", user.uid)
-        await setDoc(ref, {
-            displayName: displayName.trim(),
-            createdAt: serverTimestamp(),
-        })
-        
-        // Update local state to show saved name
-        setSavedName(displayName.trim())
+        await setDoc(
+            ref,
+            {
+                displayName: trimmedName,
+                updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+        )
+
+        // Update local state to show saved name immediately
+        setSavedName(trimmedName)
     }
 
     return (
-        <div className="min-h-screen bg-black text-white p-6 max-w-md mx-auto" style={{backgroundColor: '#000000', color: '#ffffff'}}>
-            {/* Page header */}
-            <h1 className="text-2xl font-bold mb-4">Your Profile</h1>
+        <div className="mx-auto min-h-screen w-full max-w-md space-y-6">
+            <header className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--muted)]">Profile</p>
+                <h1 className="text-3xl font-black text-[var(--ink)]">Your stage name</h1>
+                <p className="text-sm font-medium text-[var(--muted)]">
+                    Set a display name so other comics can shout you out in the comments.
+                </p>
+            </header>
 
-            {/* Display current saved name or prompt to set one */}
-            {savedName ? (
-                <p className="text-green-400 mb-4">👤 Display Name: {savedName}</p>
-            ) : (
-                <p className="text-gray-400 mb-4">You don't have a name set yet.</p>
-            )}
+            <div className="app-card space-y-4 p-6">
+                {savedName ? (
+                    <div className="rounded-[14px] border-2 border-[var(--line)] bg-[var(--accent)]/30 px-4 py-3 text-sm font-semibold text-[var(--ink)]">
+                        👤 Display Name: {savedName}
+                    </div>
+                ) : (
+                    <p className="text-sm font-semibold text-[var(--muted)]">You don&apos;t have a name set yet.</p>
+                )}
 
-            {/* Display name input form */}
-            <Input
-                className="text-black"
-                placeholder="Enter display name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-            />
+                <Input
+                    className="border-2 border-[var(--line)] bg-[var(--paper)] text-[var(--ink)] placeholder:text-[var(--muted)]"
+                    placeholder="Enter display name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                />
 
-            {/* Save button */}
-            <Button className="mt-2" onClick={saveName}>
-                Save
-            </Button>
+                <Button
+                    className="w-full border-2 border-[var(--line)] bg-[var(--accent)] py-3 text-sm font-bold text-[var(--ink)] hover:bg-[var(--accent-strong)]"
+                    onClick={saveName}
+                >
+                    Save name
+                </Button>
+            </div>
         </div>
     )
 }

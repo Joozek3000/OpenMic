@@ -78,114 +78,103 @@ export default function UploadPage() {
     }
 
     return (
-        <div className="min-h-screen bg-white text-black p-6 upload-page-container">
-            <div className="max-w-2xl mx-auto">
-                {/* Header section */}
-                <div className="text-center mb-12 pt-8" style={{color: '#000000'}}>
-                    <h1 className="text-5xl font-bold mb-4" style={{color: '#000000'}}>Create Video</h1>
-                    <p className="text-xl" style={{color: '#666666'}}>Share your creativity with the world</p>
-                </div>
+        <div className="min-h-screen space-y-10">
+            <header className="space-y-3 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--muted)]">Upload</p>
+                <h1 className="text-4xl font-black text-[var(--ink)]">Drop a new set</h1>
+                <p className="mx-auto max-w-md text-sm font-medium text-[var(--muted)]">
+                    Keep it under 100MB, add a title, and hit publish.
+                </p>
+            </header>
 
-                {/* Upload area with dashed border */}
-                <div className="mb-12">
-                    <div 
-                        className={`border-2 border-dashed border-gray-400 rounded-2xl p-12 text-center transition-colors hover:border-gray-600 ${
-                            videoFile ? 'border-blue-500 bg-blue-50' : 'bg-gray-50'
-                        }`}
-                        style={{ minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onDragOver={(e) => {
-                            e.preventDefault()
-                            e.currentTarget.classList.add('border-blue-500', 'bg-blue-50')
-                        }}
-                        onDragLeave={(e) => {
-                            e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50')
-                        }}
-                        onDrop={(e) => {
-                            e.preventDefault()
-                            e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50')
-                            const file = e.dataTransfer.files[0]
-                            if (file) handleFileSelect(file)
-                        }}
-                    >
-                        {!videoFile ? (
-                            <div className="space-y-6">
-                                <div className="text-8xl text-gray-400">📹</div>
-                                <div>
-                                    <p className="text-2xl text-gray-700 mb-3 font-medium">Drop your video here</p>
-                                    <p className="text-gray-500 mb-6 text-lg">or</p>
-                                    <label className="inline-block">
-                                        <input
-                                            type="file"
-                                            accept="video/*"
-                                            onChange={(e) => {
-                                                if (e.target.files?.[0]) {
-                                                    handleFileSelect(e.target.files[0])
-                                                }
-                                            }}
-                                            className="hidden"
-                                        />
-                                        <div className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl cursor-pointer font-semibold text-lg transition-colors">
-                                            Choose File
-                                        </div>
-                                    </label>
-                                </div>
-                                <p className="text-base text-gray-500 mt-6">MP4, MOV, AVI up to 100MB</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-6 w-full">
-                                <video
-                                    src={URL.createObjectURL(videoFile)}
-                                    controls
-                                    className="w-full max-w-md mx-auto rounded-xl shadow-lg"
-                                    style={{ maxHeight: '300px' }}
+            <section className="app-card mx-auto w-full max-w-2xl space-y-8 p-6">
+                <div
+                    className={`flex min-h-[260px] flex-col items-center justify-center rounded-[18px] border-2 border-dashed border-[var(--line)] bg-[var(--paper)] text-center transition ${
+                        videoFile ? "bg-[var(--accent)]/25" : ""
+                    }`}
+                    onDragOver={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.add("bg-[var(--accent)]/30")
+                    }}
+                    onDragLeave={(e) => {
+                        e.currentTarget.classList.remove("bg-[var(--accent)]/30")
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.remove("bg-[var(--accent)]/30")
+                        const file = e.dataTransfer.files[0]
+                        if (file) handleFileSelect(file)
+                    }}
+                >
+                    {!videoFile ? (
+                        <div className="space-y-4">
+                            <div className="text-6xl">📹</div>
+                            <p className="text-lg font-semibold text-[var(--ink)]">Drag your clip here</p>
+                            <p className="text-sm font-medium text-[var(--muted)]">MP4, MOV, AVI up to 100MB</p>
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border-2 border-[var(--line)] bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-[var(--ink)]">
+                                <input
+                                    type="file"
+                                    accept="video/*"
+                                    onChange={(e) => {
+                                        if (e.target.files?.[0]) {
+                                            handleFileSelect(e.target.files[0])
+                                        }
+                                    }}
+                                    className="hidden"
                                 />
-                                <div className="flex items-center justify-center gap-4">
-                                    <span className="text-green-600 font-medium">✓ {videoFile.name}</span>
-                                    <button
-                                        onClick={() => setVideoFile(null)}
-                                        className="text-red-500 hover:text-red-600 text-sm font-medium underline"
-                                    >
-                                        Remove
-                                    </button>
-                                </div>
+                                Choose file
+                            </label>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <video
+                                src={URL.createObjectURL(videoFile)}
+                                controls
+                                className="mx-auto max-h-80 w-full rounded-[14px] border-2 border-[var(--line)] object-cover"
+                            />
+                            <div className="flex items-center justify-center gap-3 text-sm font-semibold text-[var(--ink)]">
+                                <span>✓ {videoFile.name}</span>
+                                <button
+                                    onClick={() => setVideoFile(null)}
+                                    className="text-[var(--accent-strong)] underline"
+                                >
+                                    Remove
+                                </button>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Form fields */}
-                <div className="space-y-8">
-                    {/* Title field with character counter */}
-                    <div>
-                        <div className="flex justify-between items-center mb-3">
-                            <label className="text-xl font-semibold text-black">Title *</label>
-                            <span className={`text-sm font-medium ${title.length > TITLE_LIMIT ? 'text-red-500' : 'text-gray-500'}`}>
+                <div className="space-y-6">
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink)]">Title *</label>
+                            <span className={`text-xs font-semibold ${title.length > TITLE_LIMIT ? "text-[var(--accent-strong)]" : "text-[var(--muted)]"}`}>
                                 {title.length}/{TITLE_LIMIT}
                             </span>
                         </div>
                         <input
                             type="text"
-                            placeholder="Enter video title"
+                            placeholder="Name your clip"
                             value={title}
                             onChange={(e) => {
                                 if (e.target.value.length <= TITLE_LIMIT) {
                                     setTitle(e.target.value)
                                 }
                             }}
-                            className="w-full p-4 rounded-xl bg-white border-2 border-gray-300 text-black placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors text-lg"
+                            className="w-full rounded-[14px] border-2 border-[var(--line)] bg-[var(--paper)] p-4 text-base font-semibold text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                         />
                     </div>
 
-                    {/* Description field with character counter */}
-                    <div>
-                        <div className="flex justify-between items-center mb-3">
-                            <label className="text-xl font-semibold text-black">Description</label>
-                            <span className={`text-sm font-medium ${description.length > DESCRIPTION_LIMIT ? 'text-red-500' : 'text-gray-500'}`}>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink)]">Description</label>
+                            <span className={`text-xs font-semibold ${description.length > DESCRIPTION_LIMIT ? "text-[var(--accent-strong)]" : "text-[var(--muted)]"}`}>
                                 {description.length}/{DESCRIPTION_LIMIT}
                             </span>
                         </div>
                         <textarea
-                            placeholder="Tell your audience about your video"
+                            placeholder="Give a little setup for your punchline"
                             value={description}
                             onChange={(e) => {
                                 if (e.target.value.length <= DESCRIPTION_LIMIT) {
@@ -193,17 +182,16 @@ export default function UploadPage() {
                                 }
                             }}
                             rows={4}
-                            className="w-full p-4 rounded-xl bg-white border-2 border-gray-300 text-black placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors resize-none text-lg"
+                            className="w-full rounded-[14px] border-2 border-[var(--line)] bg-[var(--paper)] p-4 text-base font-semibold text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                         />
                     </div>
 
-                    {/* Category selector */}
-                    <div>
-                        <label className="text-xl font-semibold text-black block mb-3">Category</label>
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink)]">Category</label>
                         <select
                             value={category}
                             onChange={(e) => setCategory(e.target.value)}
-                            className="w-full p-4 rounded-xl bg-white border-2 border-gray-300 text-black focus:border-blue-500 focus:outline-none transition-colors text-lg"
+                            className="w-full rounded-[14px] border-2 border-[var(--line)] bg-[var(--paper)] p-4 text-base font-semibold text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                         >
                             <option value="Stand-up">🎤 Stand-up</option>
                             <option value="Impression">🎭 Impression</option>
@@ -214,23 +202,22 @@ export default function UploadPage() {
                         </select>
                     </div>
 
-                    {/* Upload button */}
                     <Button
                         onClick={handleUpload}
                         disabled={uploading || !videoFile || !title.trim() || title.length > TITLE_LIMIT || description.length > DESCRIPTION_LIMIT}
-                        className="w-full py-5 text-xl font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors rounded-xl"
+                        className="w-full border-2 border-[var(--line)] bg-[var(--accent-strong)] py-4 text-lg font-bold text-[var(--paper)] shadow-[0_6px_0_rgba(31,27,22,0.15)] transition disabled:cursor-not-allowed disabled:border-[var(--muted)] disabled:bg-[var(--paper)] disabled:text-[var(--muted)]"
                     >
                         {uploading ? (
                             <span className="flex items-center justify-center gap-3">
-                                <div className="animate-spin w-6 h-6 border-2 border-white border-t-transparent rounded-full"></div>
+                                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--paper)] border-t-transparent" />
                                 Uploading...
                             </span>
                         ) : (
-                            "Publish Video"
+                            "Publish Clip"
                         )}
                     </Button>
                 </div>
-            </div>
+            </section>
         </div>
     )
 }
