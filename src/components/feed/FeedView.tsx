@@ -15,11 +15,12 @@ import {
   getDoc,
   Timestamp,
 } from "firebase/firestore"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { formatDistanceToNow } from "date-fns"
 import { deleteObject, ref } from "firebase/storage"
-import { Heart, MessageCircle, MoreHorizontal, Pause, Play, Share2 } from "lucide-react"
+import { Heart, MessageCircle, MoreHorizontal, Pause, Play, Share2, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import FloatingBottomNav from "@/components/navigation/FloatingBottomNav"
 
 interface Post {
   id: string
@@ -45,6 +46,7 @@ export default function FeedView() {
   const [posts, setPosts] = useState<Post[]>([])
   const [comments, setComments] = useState<Record<string, Comment[]>>({})
   const [newComments, setNewComments] = useState<Record<string, string>>({})
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null)
   const [playingState, setPlayingState] = useState<Record<string, boolean>>({})
 
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({})
@@ -110,6 +112,29 @@ export default function FeedView() {
   }, [])
 
   const postIds = useMemo(() => posts.map((post) => post.id), [posts])
+  const activePost = useMemo(
+    () => (activeCommentsPostId ? posts.find((post) => post.id === activeCommentsPostId) : undefined),
+    [activeCommentsPostId, posts]
+  )
+  const activePostComments = activeCommentsPostId ? comments[activeCommentsPostId] ?? [] : []
+  const activeCommentDraft = activeCommentsPostId ? newComments[activeCommentsPostId] ?? "" : ""
+  const activePostDisplayName = activePost
+    ? userNames[activePost.userId] || activePost.userId.slice(0, 6)
+    : ""
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveCommentsPostId(null)
+      }
+    }
+
+    if (activeCommentsPostId) {
+      document.addEventListener("keydown", handleKey)
+    }
+
+    return () => document.removeEventListener("keydown", handleKey)
+  }, [activeCommentsPostId])
 
   // Seed play state for new clips
   useEffect(() => {
@@ -202,11 +227,11 @@ export default function FeedView() {
 
   const handleCommentSubmit = async (postId: string) => {
     const text = newComments[postId]
-    if (!text || !currentUser) return
+    if (!text?.trim() || !currentUser) return
 
     const commentRef = collection(db, "posts", postId, "comments")
     const newComment = {
-      text,
+      text: text.trim(),
       userId: currentUser,
       timestamp: serverTimestamp(),
     }
@@ -240,7 +265,7 @@ export default function FeedView() {
 
   return (
     <div className="relative h-screen w-full bg-black text-white">
-      <div className="h-full snap-y snap-mandatory overflow-y-scroll pb-24">
+      <div className="relative h-full snap-y snap-mandatory overflow-y-scroll">
         {posts.length === 0 ? (
           <section className="flex h-screen w-full snap-start items-center justify-center">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-white/70">Loading clips…</p>
@@ -250,8 +275,7 @@ export default function FeedView() {
             const likeCount = post.likes?.length || 0
             const likedByUser = post.likes?.includes(currentUser || "")
             const displayName = userNames[post.userId] || post.userId.slice(0, 6)
-            const postComments = comments[post.id] ?? []
-            const commentCount = postComments.length
+            const commentCount = comments[post.id]?.length ?? 0
             const isPlaying = playingState[post.id] !== false
             const timeAgo = post.timestamp
               ? formatDistanceToNow(post.timestamp.toDate(), { addSuffix: true })
@@ -284,7 +308,7 @@ export default function FeedView() {
                   className="absolute inset-0 h-full w-full cursor-pointer object-cover"
                 />
 
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
 
                 <button
                   onClick={() => togglePlayback(post.id)}
@@ -299,75 +323,27 @@ export default function FeedView() {
                     <span>{timeAgo}</span>
                   </div>
 
-                  <div className="mt-auto flex items-end justify-between gap-8 px-6 pb-28">
-                    <div className="pointer-events-auto w-full max-w-lg space-y-5 rounded-[28px] bg-black/70 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)] backdrop-blur">
+                  <div className="mt-auto flex items-end justify-between gap-8 px-6 pb-32">
+                    <div className="pointer-events-auto max-w-md space-y-3">
                       <div className="flex items-center gap-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-white/10 text-lg font-semibold">
                           {displayName.slice(0, 1).toUpperCase()}
                         </div>
-                        <div className="flex flex-wrap items-center gap-3 text-sm font-semibold">
-                          <span>@{displayName}</span>
-                          <button className="rounded-full border border-white/40 bg-white/20 px-4 py-1 text-xs uppercase tracking-[0.3em] text-white transition hover:bg-white/30">
+                        <div className="flex items-center gap-3 text-sm font-semibold">
+                          <span className="text-base font-semibold">@{displayName}</span>
+                          <button className="rounded-full bg-white/20 px-4 py-1 text-xs uppercase tracking-[0.3em] text-white transition hover:bg-white/30">
                             Follow
                           </button>
                         </div>
                       </div>
 
-                      <h2 className="text-3xl font-black leading-tight drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)]">
-                        {post.title}
-                      </h2>
-
-                      {post.description && (
-                        <p className="text-sm text-white/80">{post.description}</p>
-                      )}
-
-                      <div className="space-y-3">
-                        <div className="max-h-28 space-y-2 overflow-y-auto pr-1">
-                          {postComments.length ? (
-                            postComments.slice(0, 3).map((comment) => (
-                              <div key={comment.id} className="rounded-2xl bg-white/10 px-3 py-2 text-sm">
-                                <span className="font-semibold">
-                                  @{userNames[comment.userId] || comment.userId.slice(0, 6)}
-                                </span>
-                                <p className="text-white/80">{comment.text}</p>
-                                {comment.userId === currentUser && (
-                                  <button
-                                    onClick={() => handleDeleteComment(post.id, comment.id)}
-                                    className="mt-1 text-xs font-semibold text-orange-400 hover:underline"
-                                  >
-                                    Delete
-                                  </button>
-                                )}
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">
-                              Be the first to drop a comment
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 rounded-full border border-white/40 bg-white/10 p-2">
-                          <Input
-                            id={`comment-input-${post.id}`}
-                            className="border-none bg-transparent text-sm text-white placeholder:text-white/60 focus-visible:ring-0"
-                            placeholder="Leave a quick note"
-                            value={newComments[post.id] || ""}
-                            onChange={(e) =>
-                              setNewComments((prev) => ({
-                                ...prev,
-                                [post.id]: e.target.value,
-                              }))
-                            }
-                          />
-                          <Button
-                            onClick={() => handleCommentSubmit(post.id)}
-                            disabled={!newComments[post.id]?.trim()}
-                            className="rounded-full bg-orange-500 px-4 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-white disabled:bg-orange-500/40"
-                          >
-                            Send
-                          </Button>
-                        </div>
+                      <div className="space-y-1">
+                        <h2 className="text-2xl font-semibold drop-shadow-[0_12px_30px_rgba(0,0,0,0.55)]">
+                          {post.title}
+                        </h2>
+                        {post.description && (
+                          <p className="text-sm text-white/80">{post.description}</p>
+                        )}
                       </div>
 
                       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">
@@ -375,47 +351,42 @@ export default function FeedView() {
                       </p>
                     </div>
 
-                    <div className="pointer-events-auto flex flex-col items-center gap-5 text-white">
+                    <div className="pointer-events-auto flex flex-col items-center gap-4 text-white">
                       <button
-                        className={`flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_6px_18px_rgba(0,0,0,0.45)] transition hover:bg-orange-100 ${
+                        className={`flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-black shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition hover:bg-white ${
                           likedByUser ? "bg-orange-500 text-white hover:bg-orange-500" : ""
                         }`}
                         onClick={() => handleLike(post)}
                       >
                         <Heart className="h-6 w-6" />
                       </button>
-                      <span className="text-xs font-semibold">{likeCount}</span>
+                      <span className="text-xs font-semibold text-white/80">{likeCount}</span>
 
                       <button
-                        className="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_6px_18px_rgba(0,0,0,0.45)] transition hover:bg-orange-100"
-                        onClick={() => {
-                          const commentInput = document.querySelector(
-                            `#comment-input-${post.id}`
-                          ) as HTMLInputElement
-                          commentInput?.focus()
-                        }}
+                        className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-black shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition hover:bg-white"
+                        onClick={() => setActiveCommentsPostId(post.id)}
                       >
                         <MessageCircle className="h-6 w-6" />
                       </button>
-                      <span className="text-xs font-semibold">{commentCount}</span>
+                      <span className="text-xs font-semibold text-white/80">{commentCount}</span>
 
                       <button
-                        className="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_6px_18px_rgba(0,0,0,0.45)] transition hover:bg-orange-100"
+                        className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-black shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition hover:bg-white"
                         onClick={() => navigator.clipboard.writeText(post.videoURL).catch(() => undefined)}
                       >
                         <Share2 className="h-6 w-6" />
                       </button>
-                      <span className="text-xs font-semibold">Share</span>
+                      <span className="text-xs font-semibold text-white/80">Share</span>
 
-                      <button className="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_6px_18px_rgba(0,0,0,0.45)] transition hover:bg-orange-100">
+                      <button className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-black shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition hover:bg-white">
                         <MoreHorizontal className="h-6 w-6" />
                       </button>
                       {auth.currentUser?.uid === post.userId && (
                         <button
-                          className="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_6px_18px_rgba(0,0,0,0.45)] transition hover:bg-orange-100"
+                          className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-black shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition hover:bg-white"
                           onClick={() => handleDelete(post)}
                         >
-                          <span className="text-xs font-semibold">Remove</span>
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.3em]">Remove</span>
                         </button>
                       )}
                     </div>
@@ -426,6 +397,99 @@ export default function FeedView() {
           })
         )}
       </div>
+
+      <FloatingBottomNav />
+
+      {activePost && (
+        <div
+          className="pointer-events-auto fixed inset-0 z-50 flex flex-col bg-black/60 backdrop-blur-sm"
+          onClick={() => setActiveCommentsPostId(null)}
+        >
+          <div
+            className="mt-auto w-full rounded-t-[32px] bg-black/90 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-6 shadow-[0_-24px_60px_rgba(0,0,0,0.45)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Comments</p>
+                <h2 className="text-lg font-semibold text-white">@{activePostDisplayName}</h2>
+              </div>
+              <button
+                onClick={() => setActiveCommentsPostId(null)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                aria-label="Close comments"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-6 max-h-[50vh] space-y-3 overflow-y-auto pr-1">
+              {activePostComments.length ? (
+                activePostComments.map((comment) => {
+                  const commenterName =
+                    userNames[comment.userId] || comment.userId.slice(0, 6)
+                  const timestampLabel = comment.timestamp
+                    ? formatDistanceToNow(comment.timestamp.toDate(), { addSuffix: true })
+                    : "Just now"
+
+                  return (
+                    <div
+                      key={comment.id}
+                      className="rounded-[20px] bg-white/[0.08] px-4 py-3 text-sm text-white"
+                    >
+                      <div className="flex items-center justify-between gap-4 text-xs uppercase tracking-[0.25em] text-white/50">
+                        <span>@{commenterName}</span>
+                        <span>{timestampLabel}</span>
+                      </div>
+                      <p className="mt-2 text-base leading-snug text-white/90">{comment.text}</p>
+                      {comment.userId === currentUser && (
+                        <button
+                          onClick={() => handleDeleteComment(activePost.id, comment.id)}
+                          className="mt-3 text-xs font-semibold uppercase tracking-[0.3em] text-orange-400 transition hover:text-orange-300"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="rounded-[24px] bg-white/5 px-4 py-8 text-center text-sm font-semibold uppercase tracking-[0.3em] text-white/50">
+                  Be the first to drop a comment
+                </div>
+              )}
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!activePost) return
+                handleCommentSubmit(activePost.id)
+              }}
+              className="mt-6 flex items-center gap-3 rounded-full bg-white/[0.08] px-4 py-3"
+            >
+              <Input
+                value={activeCommentDraft}
+                onChange={(event) =>
+                  setNewComments((prev) => ({
+                    ...prev,
+                    [activePost.id]: event.target.value,
+                  }))
+                }
+                placeholder="Add a comment"
+                className="border-none bg-transparent text-base text-white placeholder:text-white/50 focus-visible:ring-0"
+              />
+              <Button
+                type="submit"
+                disabled={!activeCommentDraft.trim()}
+                className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-black transition hover:bg-white/90 disabled:bg-white/40 disabled:text-black/40"
+              >
+                Send
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
