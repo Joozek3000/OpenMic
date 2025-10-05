@@ -9,6 +9,7 @@ import ExplorePage from "@/components/explore-page"
 import ProfilePage from "@/components/profile-page"
 import { AuthModal } from "@/components/auth-modal"
 import { useAuth } from "@/components/auth-provider"
+import { DevToolsOverlay } from "@/components/dev-tools"
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("home")
@@ -91,6 +92,7 @@ export default function Home() {
         loading={authLoading}
         error={authError}
       />
+      <DevToolsOverlay onRequestAuth={() => setAuthModalOpen(true)} />
     </div>
   )
 }
