@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Heart, MessageCircle, Share, Music, Trash2, Tag, CheckCircle } from "lucide-react"
+import { Heart, MessageCircle, Share, Music, Trash2, Tag, CheckCircle, Volume2, VolumeX, Play } from "lucide-react"
 import Image from "next/image"
 
 import type { Post } from "@/lib/types"
@@ -44,6 +44,8 @@ export default function VideoCard({
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
   const [videoError, setVideoError] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
+  const [isPlaying, setIsPlaying] = useState(false)
 
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
   const relativeTime = useMemo(() => formatRelativeTimestamp(post.timestamp), [post.timestamp])
@@ -56,28 +58,83 @@ export default function VideoCard({
     const handleVisible = (entries: IntersectionObserverEntry[]) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          void videoElement.play().catch(() => {
-            videoElement.muted = true
-            void videoElement.play().catch((error) => {
-              console.error("Video playback failed", error)
-            })
+          videoElement.muted = isMuted
+          void videoElement.play().then(() => {
+            setIsPlaying(true)
           })
+            .catch((error) => {
+              if (!isMuted) {
+                console.warn("Autoplay with sound blocked; reverting to muted", error)
+                videoElement.muted = true
+                setIsMuted(true)
+                void videoElement.play().then(() => setIsPlaying(true)).catch((err) => console.error("Video playback failed", err))
+              } else {
+                console.error("Video playback failed", error)
+              }
+            })
         } else {
           videoElement.pause()
+          setIsPlaying(false)
         }
       })
     }
 
-    const observer = new IntersectionObserver(handleVisible, { threshold: 0.75 })
+    const observer = new IntersectionObserver(handleVisible, { threshold: 0.6 })
     observer.observe(videoElement)
 
     return () => {
       observer.disconnect()
     }
-  }, [])
+  }, [isMuted])
+
+  useEffect(() => {
+    const videoElement = videoRef.current
+    if (!videoElement) return
+    videoElement.muted = isMuted
+  }, [isMuted])
+
+  const handleToggleMute = () => {
+    const videoElement = videoRef.current
+    if (!videoElement) return
+
+    if (isMuted) {
+      videoElement.muted = false
+      void videoElement.play()
+        .then(() => {
+          setIsMuted(false)
+          setIsPlaying(true)
+        })
+        .catch((error) => {
+          console.warn("Unable to unmute automatically", error)
+          videoElement.muted = true
+          setIsMuted(true)
+        })
+    } else {
+      videoElement.muted = true
+      setIsMuted(true)
+    }
+  }
 
   return (
-    <div className="relative h-screen w-full snap-start bg-black">
+    <div
+      className="relative h-screen w-full snap-start bg-black"
+      onClick={() => {
+        const videoElement = videoRef.current
+        if (!videoElement) return
+        if (videoElement.paused) {
+          void videoElement.play()
+            .then(() => {
+              setIsPlaying(true)
+            })
+            .catch((error) => {
+              console.error("Failed to resume playback", error)
+            })
+        } else {
+          videoElement.pause()
+          setIsPlaying(false)
+        }
+      }}
+    >
       <div className="absolute inset-0">
         {videoError ? (
           <div className="h-full w-full bg-gray-900 flex items-center justify-center">
@@ -90,16 +147,35 @@ export default function VideoCard({
             className="h-full w-full object-cover"
             loop
             playsInline
-            muted
+            muted={isMuted}
             controls={false}
             onError={() => setVideoError(true)}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
           />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+        {!isPlaying && !videoError && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-black/40 rounded-full p-4">
+              <Play size={36} className="text-white" />
+            </div>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            handleToggleMute()
+          }}
+          className="absolute top-16 right-4 z-10 p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+        >
+          {isMuted ? <VolumeX size={22} className="text-white" /> : <Volume2 size={22} className="text-white" />}
+        </button>
       </div>
 
       <div className="absolute inset-0 flex">
-        <div className="flex-1 flex flex-col justify-end p-4 pb-24">
+        <div className="flex-1 flex flex-col justify-end p-4 pb-20">
           <div className="flex items-center gap-3 mb-3">
             <Image
               src={avatar}
@@ -132,10 +208,13 @@ export default function VideoCard({
           </div>
         </div>
 
-        <div className="flex flex-col items-center justify-end gap-6 p-4 pb-24">
+        <div className="flex flex-col items-center justify-end gap-6 p-4 pb-20">
           <div className="flex flex-col items-center">
             <button
-              onClick={onToggleLike}
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleLike()
+              }}
               disabled={disableActions || likeState.pending}
               className={`p-3 rounded-full transition-all duration-200 ${
                 likeState.liked ? "bg-red-500" : "bg-black/30 hover:bg-black/50"
@@ -148,7 +227,10 @@ export default function VideoCard({
 
           <div className="flex flex-col items-center">
             <button
-              onClick={onCommentsClick}
+              onClick={(event) => {
+                event.stopPropagation()
+                onCommentsClick()
+              }}
               className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200"
             >
               <MessageCircle size={24} className="text-white" />
@@ -158,7 +240,10 @@ export default function VideoCard({
 
           <div className="flex flex-col items-center">
             <button
-              onClick={onShare}
+              onClick={(event) => {
+                event.stopPropagation()
+                onShare()
+              }}
               className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200"
             >
               <Share size={24} className="text-white" />
@@ -168,7 +253,10 @@ export default function VideoCard({
 
           {isOwner && (
             <button
-              onClick={onDelete}
+              onClick={(event) => {
+                event.stopPropagation()
+                onDelete()
+              }}
               disabled={isDeleting || disableActions}
               className="p-3 rounded-full bg-black/30 hover:bg-red-600/60 transition-all duration-200 text-white disabled:opacity-60"
             >
