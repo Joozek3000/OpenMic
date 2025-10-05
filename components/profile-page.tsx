@@ -10,8 +10,13 @@ import { updateDisplayName } from "@/lib/data/users"
 import { buildAvatarPlaceholder, formatLargeNumber } from "@/lib/utils"
 import { useDisplayName } from "@/hooks/use-display-name"
 
-export default function ProfilePage() {
-  const { user } = useAuth()
+interface ProfilePageProps {
+  onSelectPost: (postId: string) => void
+  onRequestAuth: () => void
+}
+
+export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePageProps) {
+  const { user, logout, loading: authLoading, error: authError } = useAuth()
   const { posts } = usePostsContext()
   const [activeTab, setActiveTab] = useState("videos")
   const savedDisplayName = useDisplayName(user?.uid)
@@ -28,7 +33,7 @@ export default function ProfilePage() {
   }, [savedDisplayName, user])
 
   const userPosts = useMemo(() => {
-    if (!user) return []
+    if (!user || user.isAnonymous) return []
     return posts.filter((post) => post.userId === user.uid)
   }, [posts, user])
 
@@ -42,6 +47,11 @@ export default function ProfilePage() {
     () => userPosts.reduce((sum, post) => sum + (post.viewCount ?? 0), 0),
     [userPosts],
   )
+
+  const likedPosts = useMemo(() => {
+    if (!user || user.isAnonymous) return []
+    return posts.filter((post) => post.likes?.includes(user.uid))
+  }, [posts, user])
 
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || user?.uid ?? "guest"), [displayName, user?.uid])
 
@@ -91,9 +101,19 @@ export default function ProfilePage() {
       <div className="max-w-md mx-auto">
         <div className="flex items-center justify-between p-4 pt-8">
           <h1 className="text-xl font-bold">Profile</h1>
-          <button className="p-2 hover:bg-gray-800 rounded-full transition-colors">
-            <Settings size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            {user?.isAnonymous && (
+              <button
+                onClick={onRequestAuth}
+                className="rounded-full border border-gray-700 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-200 hover:bg-gray-800"
+              >
+                Sign in
+              </button>
+            )}
+            <button className="p-2 hover:bg-gray-800 rounded-full transition-colors">
+              <Settings size={24} />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 pb-6">
@@ -120,6 +140,12 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {!user?.isAnonymous && user?.email && (
+            <p className="mb-4 text-sm text-gray-400">Signed in as {user.email}</p>
+          )}
+
+          {authError && <p className="mb-3 text-sm text-red-400">{authError}</p>}
 
           <div className="mb-4 space-y-3">
             <div>
@@ -150,6 +176,15 @@ export default function ProfilePage() {
                 <UserPlus size={20} />
               </button>
             </div>
+            {!user?.isAnonymous && (
+              <button
+                onClick={() => logout()}
+                disabled={authLoading}
+                className="w-full rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {authLoading ? "Signing out…" : "Sign out"}
+              </button>
+            )}
             {feedback && <p className="text-sm text-emerald-300">{feedback}</p>}
           </div>
         </div>
@@ -184,11 +219,15 @@ export default function ProfilePage() {
             ) : (
               <div className="grid grid-cols-3 gap-1">
                 {userPosts.map((post) => (
-                  <div key={post.id} className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden">
+                  <div
+                    key={post.id}
+                    className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer"
+                    onClick={() => onSelectPost(post.id)}
+                  >
                     {post.thumbnailURL ? (
                       <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
                     ) : (
-                      <video src={post.videoURL} className="h-full w-full object-cover" muted loop playsInline />
+                      <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
                     )}
                     <div className="absolute bottom-2 left-2">
                       <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
@@ -200,10 +239,33 @@ export default function ProfilePage() {
               </div>
             )
           ) : (
-            <div className="text-center py-12">
-              <Heart size={48} className="mx-auto mb-4 text-gray-600" />
-              <p className="text-gray-400">Liked sets will appear here soon.</p>
-            </div>
+            likedPosts.length === 0 ? (
+              <div className="text-center py-12">
+                <Heart size={48} className="mx-auto mb-4 text-gray-600" />
+                <p className="text-gray-400">Liked sets will appear here soon.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1">
+                {likedPosts.map((post) => (
+                  <div
+                    key={post.id}
+                    className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer"
+                    onClick={() => onSelectPost(post.id)}
+                  >
+                    {post.thumbnailURL ? (
+                      <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
+                    ) : (
+                      <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
+                    )}
+                    <div className="absolute bottom-2 left-2">
+                      <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                        {formatLargeNumber(post.viewCount ?? 0)} views
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>

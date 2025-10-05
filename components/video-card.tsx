@@ -27,6 +27,10 @@ interface VideoCardProps {
   isOwner: boolean
   showShareSuccess: boolean
   onViewed?: () => void
+  elementId?: string
+  isFollowing: boolean
+  onToggleFollow: () => void
+  followDisabled?: boolean
 }
 
 export default function VideoCard({
@@ -42,18 +46,28 @@ export default function VideoCard({
   isOwner,
   showShareSuccess,
   onViewed,
+  elementId,
+  isFollowing,
+  onToggleFollow,
+  followDisabled = false,
 }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
   const [videoError, setVideoError] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isPortrait, setIsPortrait] = useState(false)
   const hasTrackedViewRef = useRef(false)
 
   // Build derived values up front so the JSX stays tidy.
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
   const relativeTime = useMemo(() => formatRelativeTimestamp(post.timestamp), [post.timestamp])
   const categoryLabel = useMemo(() => getCategoryLabel(post.category), [post.category])
+
+  useEffect(() => {
+    hasTrackedViewRef.current = false
+    setIsPortrait(false)
+  }, [post.id])
 
   useEffect(() => {
     const videoElement = videoRef.current
@@ -128,6 +142,7 @@ export default function VideoCard({
 
   return (
     <div
+      id={elementId}
       className="relative h-screen w-full snap-start bg-black"
       // Global click toggles playback while action buttons stop propagation.
       onClick={() => {
@@ -148,25 +163,37 @@ export default function VideoCard({
       }}
     >
       <div className="absolute inset-0">
-        {videoError ? (
-          <div className="h-full w-full bg-gray-900 flex items-center justify-center">
-            <span className="text-gray-400 text-sm">Video unavailable</span>
-          </div>
-        ) : (
-          <video
-            ref={videoRef}
-            src={post.videoURL}
-            className="h-full w-full object-cover"
-            loop
-            playsInline
-            muted={isMuted}
-            controls={false}
-            onError={() => setVideoError(true)}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            poster={post.thumbnailURL}
-          />
-        )}
+        <div className="absolute inset-0 flex items-center justify-center bg-black">
+          {videoError ? (
+            <div className="h-full w-full flex items-center justify-center">
+              <span className="text-gray-400 text-sm">Video unavailable</span>
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              src={post.videoURL}
+              className={
+                isPortrait
+                  ? "h-full max-h-full w-auto max-w-full object-contain"
+                  : "h-full w-full object-cover"
+              }
+              loop
+              playsInline
+              muted={isMuted}
+              controls={false}
+              onError={() => setVideoError(true)}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onLoadedMetadata={(event) => {
+                const media = event.currentTarget
+                if (media.videoWidth && media.videoHeight) {
+                  setIsPortrait(media.videoHeight > media.videoWidth)
+                }
+              }}
+              poster={post.thumbnailURL}
+            />
+          )}
+        </div>
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
         {!isPlaying && !videoError && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -204,6 +231,20 @@ export default function VideoCard({
               </span>
               <span className="text-xs text-gray-300">{relativeTime}</span>
             </div>
+            {!isOwner && (
+              <button
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onToggleFollow()
+                }}
+                disabled={disableActions || followDisabled}
+                className={`px-3 py-1 rounded-full text-sm font-semibold transition-colors ${
+                  isFollowing ? "bg-white/10 text-white" : "bg-white text-black hover:bg-gray-200"
+                } ${disableActions || followDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+              >
+                {isFollowing ? "Following" : "Follow"}
+              </button>
+            )}
           </div>
 
           <h2 className="text-white text-lg font-semibold mb-1 line-clamp-2">{post.title}</h2>

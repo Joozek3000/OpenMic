@@ -1,8 +1,17 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 import { useAuth } from "@/components/auth-provider"
+import { useFollow } from "@/components/follow-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import CommentsOverlay from "@/components/comments-overlay"
 import VideoCard from "@/components/video-card"
@@ -15,24 +24,34 @@ interface LikeState {
   pending: boolean
 }
 
-export default function VideoFeed() {
+export interface VideoFeedHandle {
+  scrollToPost: (postId: string) => void
+}
+
+const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) => {
   const { posts, loading: postsLoading, error } = usePostsContext()
   const { user, loading: authLoading } = useAuth()
+  const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
 
-  // UI state that tracks which post is currently showing the comment sheet.
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [showComments, setShowComments] = useState(false)
-  // Cache of like values so we can update the heart count instantly while Firestore writes.
   const [optimisticLikes, setOptimisticLikes] = useState<Record<string, LikeState>>({})
   const [likeError, setLikeError] = useState<string | null>(null)
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null)
-  // Remember which posts have already been counted as viewed during this session.
   const viewedPostsRef = useRef<Set<string>>(new Set())
 
+  useImperativeHandle(ref, () => ({
+    scrollToPost: (postId: string) => {
+      const node = document.getElementById(`post-${postId}`)
+      if (node) {
+        node.scrollIntoView({ behavior: "smooth", block: "start" })
+      }
+    },
+  }))
+
   useEffect(() => {
-    // Rehydrate optimistic like state whenever the Firestore snapshot or user changes.
     if (!user?.uid) {
       setOptimisticLikes({})
       return
@@ -74,7 +93,6 @@ export default function VideoFeed() {
     async (post: Post) => {
       if (!user || authLoading) return
 
-      // Baseline info in case we haven't interacted with this post yet.
       const currentState: LikeState = optimisticLikes[post.id] ?? {
         liked: post.likes?.includes(user.uid) ?? false,
         count: post.likes?.length ?? 0,
@@ -116,7 +134,6 @@ export default function VideoFeed() {
   )
 
   const handleShare = useCallback(async (post: Post) => {
-    // Copy the video URL to the clipboard with a DOM fallback for browsers without async clipboard.
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(post.videoURL)
@@ -161,8 +178,15 @@ export default function VideoFeed() {
     setCommentCounts((current) => ({ ...current, [postId]: count }))
   }, [])
 
-  const derivedPosts = useMemo(() => posts, [posts])
+  const handleToggleFollow = useCallback(
+    (targetUserId: string) => {
+      if (!user || user.uid === targetUserId) return
+      void toggleFollow(targetUserId)
+    },
+    [toggleFollow, user],
+  )
 
+  const derivedPosts = useMemo(() => posts, [posts])
   const disableActions = authLoading || !user
 
   return (
@@ -211,14 +235,17 @@ export default function VideoFeed() {
               isOwner={user?.uid === post.userId}
               showShareSuccess={copiedPostId === post.id}
               onViewed={() => {
-                // Only increment in Firestore once per session so analytics stay realistic.
                 if (viewedPostsRef.current.has(post.id)) return
                 viewedPostsRef.current.add(post.id)
-                void incrementViewCount(post.id).catch((error) => {
-                  console.error("Failed to increment view count", error)
+                void incrementViewCount(post.id).catch((incrementError) => {
+                  console.error("Failed to increment view count", incrementError)
                   viewedPostsRef.current.delete(post.id)
                 })
               }}
+              elementId={`post-${post.id}`}
+              isFollowing={!!user && isFollowing(post.userId)}
+              onToggleFollow={() => handleToggleFollow(post.userId)}
+              followDisabled={followLoading || !user || user.uid === post.userId}
             />
           )
         })
@@ -234,4 +261,8 @@ export default function VideoFeed() {
       )}
     </div>
   )
-}
+})
+
+VideoFeed.displayName = "VideoFeed"
+
+export default VideoFeed

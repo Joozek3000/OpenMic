@@ -9,7 +9,11 @@ import { useFilters } from "@/components/filters-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { formatLargeNumber, getCategoryLabel } from "@/lib/utils"
 
-export default function ExplorePage() {
+interface ExplorePageProps {
+  onSelectPost: (postId: string) => void
+}
+
+export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
   const { posts, loading } = usePostsContext()
   const { category, setCategory } = useFilters()
 
@@ -67,6 +71,7 @@ export default function ExplorePage() {
                 <div
                   key={post.id}
                   className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
+                  onClick={() => onSelectPost(post.id)}
                 >
                   {post.thumbnailURL ? (
                     <Image

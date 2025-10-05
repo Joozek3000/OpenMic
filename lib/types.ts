@@ -26,6 +26,7 @@ export interface UserProfile {
   uid: string
   displayName?: string
   updatedAt?: Timestamp
+  following?: string[]
 }
 
 export interface CreatePostInput {

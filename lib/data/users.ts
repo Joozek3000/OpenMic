@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore"
+import { arrayRemove, arrayUnion, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore"
 
 import { db } from "@/lib/firebase"
 import type { UserProfile } from "@/lib/types"
@@ -12,6 +12,7 @@ export async function ensureUserProfile(userId: string) {
   if (!snapshot.exists()) {
     await setDoc(userRef, {
       updatedAt: serverTimestamp(),
+      following: [],
     })
   }
 }
@@ -59,5 +60,14 @@ export async function getUserProfile(userId: string) {
     uid: userId,
     displayName: data.displayName,
     updatedAt: data.updatedAt,
+    following: data.following ?? [],
   } satisfies UserProfile
+}
+
+export async function toggleFollow(userId: string, targetId: string, shouldFollow: boolean) {
+  const userRef = doc(db, "users", userId)
+  await updateDoc(userRef, {
+    following: shouldFollow ? arrayUnion(targetId) : arrayRemove(targetId),
+    updatedAt: serverTimestamp(),
+  })
 }

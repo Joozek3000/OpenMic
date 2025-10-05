@@ -4,13 +4,30 @@ import { useMemo, useState } from "react"
 import { Search, TrendingUp, Hash, Play } from "lucide-react"
 import Image from "next/image"
 
-import { usePostsContext } from "@/components/posts-provider"
+import { useAuth } from "@/components/auth-provider"
 import { useFilters } from "@/components/filters-provider"
+import { useFollow } from "@/components/follow-provider"
+import { usePostsContext } from "@/components/posts-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { buildAvatarPlaceholder, formatLargeNumber, getCategoryLabel } from "@/lib/utils"
 import { useDisplayName } from "@/hooks/use-display-name"
 
-function SearchUserRow({ userId, sets, likes, views }: { userId: string; sets: number; likes: number; views: number }) {
+interface SearchPageProps {
+  onSelectPost: (postId: string) => void
+}
+
+interface SearchUserRowProps {
+  userId: string
+  sets: number
+  likes: number
+  views: number
+  onToggleFollow: () => void
+  isFollowing: boolean
+  disabled: boolean
+}
+
+function SearchUserRow({ userId, sets, likes, views, onToggleFollow, isFollowing, disabled }: SearchUserRowProps) {
+  const { user } = useAuth()
   const name = useDisplayName(userId) ?? "Anonymous"
   const avatar = useMemo(() => buildAvatarPlaceholder(name || userId), [name, userId])
 
@@ -25,16 +42,25 @@ function SearchUserRow({ userId, sets, likes, views }: { userId: string; sets: n
           </div>
         </div>
       </div>
-      <button className="bg-white text-black px-4 py-1 rounded-full text-sm font-semibold hover:bg-gray-200 transition-colors">
-        Follow
-      </button>
+      {user?.uid !== userId && (
+        <button
+          onClick={onToggleFollow}
+          disabled={disabled}
+          className={`px-4 py-1 rounded-full text-sm font-semibold transition-colors ${
+            isFollowing ? "bg-white/10 text-white" : "bg-white text-black hover:bg-gray-200"
+          } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+        >
+          {isFollowing ? "Following" : "Follow"}
+        </button>
+      )}
     </div>
   )
 }
 
-export default function SearchPage() {
+export default function SearchPage({ onSelectPost }: SearchPageProps) {
   const { posts, loading } = usePostsContext()
   const { category, setCategory } = useFilters()
+  const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState("trending")
 
@@ -174,7 +200,11 @@ export default function SearchPage() {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {trendingPosts.slice(0, 12).map((post) => (
-                    <div key={post.id} className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group">
+                    <div
+                      key={post.id}
+                      className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
+                      onClick={() => onSelectPost(post.id)}
+                    >
                       {post.thumbnailURL ? (
                         <Image
                           src={post.thumbnailURL}
@@ -186,7 +216,7 @@ export default function SearchPage() {
                         // Fallback to the actual video if no poster image is available yet.
                         <video
                           src={post.videoURL}
-                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                          className="h-full w-full object-contain bg-black transition-transform group-hover:scale-105"
                           muted
                           loop
                           playsInline
@@ -224,6 +254,9 @@ export default function SearchPage() {
                       sets={summary.sets}
                       likes={summary.likes}
                       views={summary.views}
+                      onToggleFollow={() => toggleFollow(summary.userId)}
+                      isFollowing={isFollowing(summary.userId)}
+                      disabled={followLoading}
                     />
                   ))}
                 </div>

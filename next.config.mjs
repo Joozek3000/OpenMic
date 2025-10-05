@@ -9,6 +9,15 @@ const nextConfig = {
   turbopack: {
     root: resolve(__dirname, "."),
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "firebasestorage.googleapis.com",
+        pathname: "/**",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

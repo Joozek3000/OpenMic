@@ -1,8 +1,16 @@
 "use client"
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import type { User } from "firebase/auth"
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth"
+import {
+  EmailAuthProvider,
+  linkWithCredential,
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  signOut,
+  type UserCredential,
+} from "firebase/auth"
 
 import { auth } from "@/lib/firebase"
 import { ensureUserProfile } from "@/lib/data/users"
@@ -11,6 +19,9 @@ interface AuthContextValue {
   user: User | null
   loading: boolean
   error?: string
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string) => Promise<void>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -19,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [pendingCredential, setPendingCredential] = useState<UserCredential | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -61,7 +73,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo<AuthContextValue>(() => ({ user, loading, error }), [user, loading, error])
+  const signIn = useCallback(async (email: string, password: string) => {
+    setLoading(true)
+    setError(undefined)
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password)
+      setPendingCredential(credential)
+    } catch (authError) {
+      console.error("Failed to sign in", authError)
+      setError("Sign-in failed. Check your credentials and try again.")
+      setLoading(false)
+    }
+  }, [])
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    if (!auth.currentUser) {
+      setError("No user session available. Please refresh the page.")
+      return
+    }
+
+    setLoading(true)
+    setError(undefined)
+    try {
+      const credential = EmailAuthProvider.credential(email, password)
+      const linked = await linkWithCredential(auth.currentUser, credential)
+      setPendingCredential(linked)
+    } catch (linkError) {
+      console.error("Failed to create account", linkError)
+      if ((linkError as { code?: string })?.code === "auth/credential-already-in-use") {
+        setError("This email is already linked to another profile.")
+      } else {
+        setError("Could not create account. Please try again.")
+      }
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!pendingCredential) return
+
+    const commit = async () => {
+      try {
+        await ensureUserProfile(pendingCredential.user.uid)
+      } finally {
+        setPendingCredential(null)
+        setLoading(false)
+      }
+    }
+
+    void commit()
+  }, [pendingCredential])
+
+  const logout = useCallback(async () => {
+    setLoading(true)
+    setError(undefined)
+    try {
+      await signOut(auth)
+      await signInAnonymously(auth)
+    } catch (logoutError) {
+      console.error("Failed to log out", logoutError)
+      setError("Could not log out. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      loading,
+      error,
+      signIn,
+      signUp,
+      logout,
+    }),
+    [user, loading, error, signIn, signUp, logout],
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
