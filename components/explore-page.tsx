@@ -1,47 +1,55 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Play } from "lucide-react"
+import { useMemo } from "react"
+import { Play, Compass } from "lucide-react"
+import Image from "next/image"
 
 import { usePostsContext } from "@/components/posts-provider"
+import { useFilters } from "@/components/filters-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { formatLargeNumber, getCategoryLabel } from "@/lib/utils"
 
 export default function ExplorePage() {
   const { posts, loading } = usePostsContext()
-  const [selectedCategory, setSelectedCategory] = useState("all")
+  const { category, setCategory } = useFilters()
 
   const curatedPosts = useMemo(() => {
-    const filtered = selectedCategory === "all" ? posts : posts.filter((post) => post.category === selectedCategory)
-    return [...filtered].sort((a, b) => (b.likes?.length ?? 0) - (a.likes?.length ?? 0))
-  }, [posts, selectedCategory])
+    const filtered = category === "all" ? posts : posts.filter((post) => post.category === category)
+    return [...filtered].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
+  }, [posts, category])
+
+  const totalViews = useMemo(() => curatedPosts.reduce((sum, post) => sum + (post.viewCount ?? 0), 0), [curatedPosts])
 
   return (
     <div className="h-full bg-black text-white overflow-y-auto">
       <div className="max-w-md mx-auto">
         <div className="p-4 pt-8">
-          <h1 className="text-2xl font-bold mb-4">Explore</h1>
+          <div className="flex items-center gap-2 mb-4">
+            <Compass size={24} />
+            <h1 className="text-2xl font-bold">Explore</h1>
+          </div>
+          <p className="text-gray-400 text-sm mb-4">{formatLargeNumber(totalViews)} total views across this selection.</p>
 
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
             <button
-              onClick={() => setSelectedCategory("all")}
+              onClick={() => setCategory("all")}
               className={`px-4 py-2 rounded-full font-medium whitespace-nowrap transition-colors ${
-                selectedCategory === "all" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
+                category === "all" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
               }`}
             >
               For You
             </button>
-            {STANDUP_CATEGORIES.map((category) => (
+            {STANDUP_CATEGORIES.map((categoryOption) => (
               <button
-                key={category.value}
-                onClick={() => setSelectedCategory(category.value)}
+                key={categoryOption.value}
+                onClick={() => setCategory(categoryOption.value)}
                 className={`px-4 py-2 rounded-full font-medium whitespace-nowrap transition-colors ${
-                  selectedCategory === category.value
+                  category === categoryOption.value
                     ? "bg-white text-black"
                     : "bg-gray-800 text-gray-300 hover:text-white"
                 }`}
               >
-                {category.label}
+                {categoryOption.label}
               </button>
             ))}
           </div>
@@ -59,13 +67,22 @@ export default function ExplorePage() {
                   key={post.id}
                   className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
                 >
-                  <video
-                    src={post.videoURL}
-                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    muted
-                    loop
-                    playsInline
-                  />
+                  {post.thumbnailURL ? (
+                    <Image
+                      src={post.thumbnailURL}
+                      alt={post.title}
+                      fill
+                      className="object-cover transition-transform group-hover:scale-105"
+                    />
+                  ) : (
+                    <video
+                      src={post.videoURL}
+                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      muted
+                      loop
+                      playsInline
+                    />
+                  )}
                   <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
@@ -74,7 +91,7 @@ export default function ExplorePage() {
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent space-y-1">
                     <div className="text-white text-xs font-medium bg-black/50 px-2 py-1 rounded inline-block">
-                      {formatLargeNumber(post.likes?.length ?? 0)} laughs
+                      {formatLargeNumber(post.viewCount ?? 0)} views
                     </div>
                     <p className="text-xs text-white line-clamp-2">{post.title}</p>
                     <span className="text-[10px] uppercase tracking-wide text-white/70">{getCategoryLabel(post.category)}</span>

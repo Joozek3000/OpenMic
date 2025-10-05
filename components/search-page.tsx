@@ -1,15 +1,16 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Search, TrendingUp, Hash } from "lucide-react"
+import { Search, TrendingUp, Hash, Play } from "lucide-react"
 import Image from "next/image"
 
 import { usePostsContext } from "@/components/posts-provider"
+import { useFilters } from "@/components/filters-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { buildAvatarPlaceholder, formatLargeNumber, getCategoryLabel } from "@/lib/utils"
 import { useDisplayName } from "@/hooks/use-display-name"
 
-function SearchUserRow({ userId, sets, likes }: { userId: string; sets: number; likes: number }) {
+function SearchUserRow({ userId, sets, likes, views }: { userId: string; sets: number; likes: number; views: number }) {
   const name = useDisplayName(userId) ?? "Anonymous"
   const avatar = useMemo(() => buildAvatarPlaceholder(name || userId), [name, userId])
 
@@ -20,7 +21,7 @@ function SearchUserRow({ userId, sets, likes }: { userId: string; sets: number; 
         <div>
           <div className="font-semibold">@{name.replace(/\s+/g, "").toLowerCase()}</div>
           <div className="text-sm text-gray-400">
-            {sets} {sets === 1 ? "set" : "sets"} · {formatLargeNumber(likes)} laughs
+            {sets} {sets === 1 ? "set" : "sets"} · {formatLargeNumber(views)} views · {formatLargeNumber(likes)} laughs
           </div>
         </div>
       </div>
@@ -33,9 +34,9 @@ function SearchUserRow({ userId, sets, likes }: { userId: string; sets: number; 
 
 export default function SearchPage() {
   const { posts, loading } = usePostsContext()
+  const { category, setCategory } = useFilters()
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState("trending")
-  const [categoryFilter, setCategoryFilter] = useState("all")
 
   const normalizedQuery = searchQuery.trim().toLowerCase()
 
@@ -45,34 +46,44 @@ export default function SearchPage() {
         !normalizedQuery ||
         post.title.toLowerCase().includes(normalizedQuery) ||
         post.description.toLowerCase().includes(normalizedQuery)
-      const matchesCategory = categoryFilter === "all" || post.category === categoryFilter
+      const matchesCategory = category === "all" || post.category === category
       return matchesQuery && matchesCategory
     })
-  }, [posts, normalizedQuery, categoryFilter])
+  }, [posts, normalizedQuery, category])
 
   const trendingPosts = useMemo(() => {
-    return [...matchingPosts].sort(
-      (a, b) => (b.likes?.length ?? 0) - (a.likes?.length ?? 0),
-    )
+    return [...matchingPosts].sort((a, b) => {
+      const scoreA = (b.viewCount ?? 0) - (a.viewCount ?? 0)
+      if (scoreA !== 0) return scoreA
+      return (b.likes?.length ?? 0) - (a.likes?.length ?? 0)
+    })
   }, [matchingPosts])
 
   const userSummaries = useMemo(() => {
-    const aggregation = new Map<string, { sets: number; likes: number }>()
+    const aggregation = new Map<string, { sets: number; likes: number; views: number }>()
     matchingPosts.forEach((post) => {
-      const entry = aggregation.get(post.userId) ?? { sets: 0, likes: 0 }
+      const entry = aggregation.get(post.userId) ?? { sets: 0, likes: 0, views: 0 }
       entry.sets += 1
       entry.likes += post.likes?.length ?? 0
+      entry.views += post.viewCount ?? 0
       aggregation.set(post.userId, entry)
     })
     return Array.from(aggregation.entries())
       .map(([userId, stats]) => ({ userId, ...stats }))
-      .sort((a, b) => b.likes - a.likes)
+      .sort((a, b) => b.views - a.views)
   }, [matchingPosts])
 
   const hashtagSummaries = useMemo(() => {
-    return STANDUP_CATEGORIES.map((category) => {
-      const count = matchingPosts.filter((post) => post.category === category.value).length
-      return { category, count }
+    return STANDUP_CATEGORIES.map((categoryItem) => {
+      const filtered = matchingPosts.filter((post) => post.category === categoryItem.value)
+      const totalLikes = filtered.reduce((sum, post) => sum + (post.likes?.length ?? 0), 0)
+      const totalViews = filtered.reduce((sum, post) => sum + (post.viewCount ?? 0), 0)
+      return {
+        category: categoryItem,
+        count: filtered.length,
+        likes: totalLikes,
+        views: totalViews,
+      }
     }).filter((entry) => entry.count > 0)
   }, [matchingPosts])
 
@@ -95,24 +106,24 @@ export default function SearchPage() {
 
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-4">
             <button
-              onClick={() => setCategoryFilter("all")}
+              onClick={() => setCategory("all")}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                categoryFilter === "all" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
+                category === "all" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
               }`}
             >
               All Comedy
             </button>
-            {STANDUP_CATEGORIES.map((category) => (
+            {STANDUP_CATEGORIES.map((categoryOption) => (
               <button
-                key={category.value}
-                onClick={() => setCategoryFilter(category.value)}
+                key={categoryOption.value}
+                onClick={() => setCategory(categoryOption.value)}
                 className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                  categoryFilter === category.value
+                  category === categoryOption.value
                     ? "bg-white text-black"
                     : "bg-gray-800 text-gray-300 hover:text-white"
                 }`}
               >
-                {category.label}
+                {categoryOption.label}
               </button>
             ))}
           </div>
@@ -160,17 +171,31 @@ export default function SearchPage() {
                 <div className="grid grid-cols-2 gap-3">
                   {trendingPosts.slice(0, 12).map((post) => (
                     <div key={post.id} className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group">
-                      <video
-                        src={post.videoURL}
-                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                        muted
-                        loop
-                        playsInline
-                      />
+                      {post.thumbnailURL ? (
+                        <Image
+                          src={post.thumbnailURL}
+                          alt={post.title}
+                          fill
+                          className="object-cover transition-transform group-hover:scale-105"
+                        />
+                      ) : (
+                        <video
+                          src={post.videoURL}
+                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                          muted
+                          loop
+                          playsInline
+                        />
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-10 h-10 bg-black/40 rounded-full flex items-center justify-center">
+                          <Play size={18} className="text-white" />
+                        </div>
+                      </div>
                       <div className="absolute bottom-2 left-2 right-2">
                         <div className="flex items-center justify-between text-xs text-white/80">
-                          <span className="bg-black/50 px-2 py-1 rounded">{formatLargeNumber(post.likes?.length ?? 0)} likes</span>
+                          <span className="bg-black/50 px-2 py-1 rounded">{formatLargeNumber(post.viewCount ?? 0)} views</span>
                           <span className="bg-white/10 px-2 py-1 rounded">{getCategoryLabel(post.category)}</span>
                         </div>
                         <p className="text-xs text-white mt-1 line-clamp-2">{post.title}</p>
@@ -188,7 +213,13 @@ export default function SearchPage() {
               ) : (
                 <div className="space-y-4">
                   {userSummaries.map((summary) => (
-                    <SearchUserRow key={summary.userId} userId={summary.userId} sets={summary.sets} likes={summary.likes} />
+                    <SearchUserRow
+                      key={summary.userId}
+                      userId={summary.userId}
+                      sets={summary.sets}
+                      likes={summary.likes}
+                      views={summary.views}
+                    />
                   ))}
                 </div>
               )}
@@ -200,18 +231,23 @@ export default function SearchPage() {
                 <p className="text-gray-400 text-sm">No categories match your filters.</p>
               ) : (
                 <div className="space-y-4">
-                  {hashtagSummaries.map(({ category, count }) => (
-                    <div key={category.value} className="flex items-center justify-between">
+                  {hashtagSummaries.map(({ category: categoryItem, count, likes, views }) => (
+                    <div key={categoryItem.value} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center">
                           <Hash size={20} className="text-gray-400" />
                         </div>
                         <div>
-                          <div className="font-semibold">#{category.label.replace(/\s+/g, "").toLowerCase()}</div>
-                          <div className="text-sm text-gray-400">{count} {count === 1 ? "set" : "sets"}</div>
+                          <div className="font-semibold">#{categoryItem.label.replace(/\s+/g, "").toLowerCase()}</div>
+                          <div className="text-sm text-gray-400">
+                            {count} {count === 1 ? "set" : "sets"} · {formatLargeNumber(views)} views · {formatLargeNumber(likes)} laughs
+                          </div>
                         </div>
                       </div>
-                      <button className="text-gray-400 hover:text-white transition-colors">
+                      <button
+                        className="text-gray-400 hover:text-white transition-colors"
+                        onClick={() => setCategory(categoryItem.value)}
+                      >
                         <TrendingUp size={20} />
                       </button>
                     </div>

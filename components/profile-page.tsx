@@ -37,6 +37,11 @@ export default function ProfilePage() {
     [userPosts],
   )
 
+  const totalViews = useMemo(
+    () => userPosts.reduce((sum, post) => sum + (post.viewCount ?? 0), 0),
+    [userPosts],
+  )
+
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || user?.uid ?? "guest"), [displayName, user?.uid])
 
   const handleSave = async () => {
@@ -107,8 +112,8 @@ export default function ProfilePage() {
                 <div className="text-sm text-gray-400">Laughs</div>
               </div>
               <div className="text-center">
-                <div className="text-xl font-bold">{user ? formatLargeNumber(userPosts.length * 10) : 0}</div>
-                <div className="text-sm text-gray-400">Open Mics</div>
+                <div className="text-xl font-bold">{formatLargeNumber(totalViews)}</div>
+                <div className="text-sm text-gray-400">Views</div>
               </div>
             </div>
           </div>
@@ -177,10 +182,14 @@ export default function ProfilePage() {
               <div className="grid grid-cols-3 gap-1">
                 {userPosts.map((post) => (
                   <div key={post.id} className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden">
-                    <video src={post.videoURL} className="h-full w-full object-cover" muted loop playsInline />
+                    {post.thumbnailURL ? (
+                      <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
+                    ) : (
+                      <video src={post.videoURL} className="h-full w-full object-cover" muted loop playsInline />
+                    )}
                     <div className="absolute bottom-2 left-2">
                       <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                        {formatLargeNumber(post.likes?.length ?? 0)} laughs
+                        {formatLargeNumber(post.viewCount ?? 0)} views
                       </span>
                     </div>
                   </div>

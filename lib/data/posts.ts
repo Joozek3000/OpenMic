@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -34,6 +35,9 @@ function mapDocToPost(docSnap: QueryDocumentSnapshot<DocumentData>): Post {
     timestamp: data.timestamp ?? null,
     likes: data.likes ?? [],
     fileId: data.fileId,
+    thumbnailURL: data.thumbnailURL ?? undefined,
+    thumbnailFileId: data.thumbnailFileId ?? undefined,
+    viewCount: data.viewCount ?? 0,
   }
 }
 
@@ -62,6 +66,9 @@ export async function createPost(input: CreatePostInput) {
     timestamp: serverTimestamp(),
     likes: [],
     fileId: input.fileId,
+    thumbnailURL: input.thumbnailURL ?? null,
+    thumbnailFileId: input.thumbnailFileId ?? null,
+    viewCount: 0,
   })
 }
 
@@ -111,7 +118,7 @@ export async function deleteComment(postId: string, commentId: string) {
   await deleteDoc(commentRef)
 }
 
-export async function deletePost(post: Pick<Post, "id" | "fileId">) {
+export async function deletePost(post: Pick<Post, "id" | "fileId"> & { thumbnailFileId?: string | null }) {
   const postRef = doc(postsCollection, post.id)
 
   const commentsRef = collection(db, "posts", post.id, "comments")
@@ -124,6 +131,11 @@ export async function deletePost(post: Pick<Post, "id" | "fileId">) {
     const storageRef = ref(storage, post.fileId)
     await deleteObject(storageRef)
   }
+
+  if (post.thumbnailFileId) {
+    const thumbRef = ref(storage, post.thumbnailFileId)
+    await deleteObject(thumbRef)
+  }
 }
 
 export async function uploadVideoFile(file: File) {
@@ -134,4 +146,22 @@ export async function uploadVideoFile(file: File) {
   await uploadBytes(storageRef, file)
   const videoURL = await getDownloadURL(storageRef)
   return { videoURL, fileId }
+}
+
+export async function uploadThumbnailFile(blob: Blob) {
+  const uniqueId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+  const fileId = `thumbnails/${uniqueId}.jpg`
+  const storageRef = ref(storage, fileId)
+  await uploadBytes(storageRef, blob, {
+    contentType: blob.type || "image/jpeg",
+  })
+  const thumbnailURL = await getDownloadURL(storageRef)
+  return { thumbnailURL, fileId }
+}
+
+export async function incrementViewCount(postId: string) {
+  const postRef = doc(db, "posts", postId)
+  await updateDoc(postRef, {
+    viewCount: increment(1),
+  })
 }

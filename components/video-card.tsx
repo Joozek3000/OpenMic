@@ -26,6 +26,7 @@ interface VideoCardProps {
   isDeleting: boolean
   isOwner: boolean
   showShareSuccess: boolean
+  onViewed?: () => void
 }
 
 export default function VideoCard({
@@ -40,12 +41,14 @@ export default function VideoCard({
   isDeleting,
   isOwner,
   showShareSuccess,
+  onViewed,
 }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
   const [videoError, setVideoError] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [isPlaying, setIsPlaying] = useState(false)
+  const hasTrackedViewRef = useRef(false)
 
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
   const relativeTime = useMemo(() => formatRelativeTimestamp(post.timestamp), [post.timestamp])
@@ -58,6 +61,10 @@ export default function VideoCard({
     const handleVisible = (entries: IntersectionObserverEntry[]) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
+          if (!hasTrackedViewRef.current) {
+            hasTrackedViewRef.current = true
+            onViewed?.()
+          }
           videoElement.muted = isMuted
           void videoElement.play().then(() => {
             setIsPlaying(true)
@@ -85,7 +92,7 @@ export default function VideoCard({
     return () => {
       observer.disconnect()
     }
-  }, [isMuted])
+  }, [isMuted, onViewed])
 
   useEffect(() => {
     const videoElement = videoRef.current
@@ -152,6 +159,7 @@ export default function VideoCard({
             onError={() => setVideoError(true)}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
+            poster={post.thumbnailURL}
           />
         )}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />

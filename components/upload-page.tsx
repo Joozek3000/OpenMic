@@ -3,11 +3,12 @@
 import type React from "react"
 
 import { useEffect, useState } from "react"
-import { Upload, Play, X } from "lucide-react"
+import { Upload, Play, X, ImageIcon } from "lucide-react"
+import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
 import { DEFAULT_CATEGORY_VALUE, STANDUP_CATEGORIES } from "@/lib/constants"
-import { createPost, uploadVideoFile } from "@/lib/data/posts"
+import { createPost, uploadThumbnailFile, uploadVideoFile } from "@/lib/data/posts"
 
 export default function UploadPage() {
   const { user, loading: authLoading } = useAuth()
@@ -18,6 +19,9 @@ export default function UploadPage() {
   const [videoPreview, setVideoPreview] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null)
+  const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null)
+  const [isGeneratingThumb, setIsGeneratingThumb] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -27,12 +31,76 @@ export default function UploadPage() {
     }
   }, [videoPreview])
 
+  const extractThumbnail = async (file: File) => {
+    setIsGeneratingThumb(true)
+    try {
+      const thumbnailBlob = await new Promise<Blob | null>((resolve) => {
+        const video = document.createElement("video")
+        video.preload = "metadata"
+        video.muted = true
+        video.playsInline = true
+        const url = URL.createObjectURL(file)
+        video.src = url
+
+        const cleanup = () => {
+          URL.revokeObjectURL(url)
+        }
+
+        video.onloadeddata = () => {
+          const canvas = document.createElement("canvas")
+          canvas.width = video.videoWidth || 720
+          canvas.height = video.videoHeight || 1280
+          const context = canvas.getContext("2d")
+          if (!context) {
+            cleanup()
+            resolve(null)
+            return
+          }
+          context.drawImage(video, 0, 0, canvas.width, canvas.height)
+          canvas.toBlob((blob) => {
+            cleanup()
+            resolve(blob)
+          }, "image/jpeg", 0.8)
+        }
+
+        video.onerror = () => {
+          cleanup()
+          resolve(null)
+        }
+      })
+
+      if (thumbnailBlob) {
+        setThumbnailBlob(thumbnailBlob)
+        setThumbnailPreview((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return URL.createObjectURL(thumbnailBlob)
+        })
+      } else {
+        setThumbnailBlob(null)
+        setThumbnailPreview((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return null
+        })
+      }
+    } catch (error) {
+      console.error("Failed to capture thumbnail", error)
+      setThumbnailBlob(null)
+      setThumbnailPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    } finally {
+      setIsGeneratingThumb(false)
+    }
+  }
+
   const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
       setVideoFile(file)
       const url = URL.createObjectURL(file)
       setVideoPreview(url)
+      void extractThumbnail(file)
     }
   }
 
@@ -42,6 +110,11 @@ export default function UploadPage() {
       URL.revokeObjectURL(videoPreview)
       setVideoPreview(null)
     }
+    if (thumbnailPreview) {
+      URL.revokeObjectURL(thumbnailPreview)
+      setThumbnailPreview(null)
+    }
+    setThumbnailBlob(null)
   }
 
   const resetForm = () => {
@@ -67,6 +140,13 @@ export default function UploadPage() {
 
     try {
       const { videoURL, fileId } = await uploadVideoFile(videoFile)
+      let thumbnailFileId: string | undefined
+      let thumbnailURL: string | undefined
+      if (thumbnailBlob) {
+        const { thumbnailURL: uploadedThumb, fileId: thumbId } = await uploadThumbnailFile(thumbnailBlob)
+        thumbnailFileId = thumbId
+        thumbnailURL = uploadedThumb
+      }
       await createPost({
         title: title.trim(),
         description: description.trim(),
@@ -74,6 +154,8 @@ export default function UploadPage() {
         videoURL,
         userId: user.uid,
         fileId,
+        thumbnailURL,
+        thumbnailFileId,
       })
 
       alert("Stand-up clip uploaded!")
@@ -118,6 +200,16 @@ export default function UploadPage() {
                   </div>
                 </div>
               </div>
+              {thumbnailPreview && (
+                <div className="mt-3 flex items-center gap-3 text-sm text-gray-300">
+                  <div className="relative h-14 w-10 overflow-hidden rounded-lg border border-gray-700">
+                    <ImageIcon className="absolute inset-0 m-auto h-5 w-5 text-gray-500" />
+                    <Image src={thumbnailPreview} alt="Thumbnail preview" fill className="object-cover" />
+                  </div>
+                  <span>Cover image ready</span>
+                </div>
+              )}
+              {isGeneratingThumb && <p className="mt-2 text-xs text-gray-400">Generating thumbnail…</p>}
               <button
                 onClick={removeVideo}
                 className="absolute top-2 right-2 p-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
@@ -179,10 +271,16 @@ export default function UploadPage() {
         <div className="mt-8 pb-8">
           <button
             onClick={handleSubmit}
-            disabled={disableForm || !videoFile || !title.trim()}
+            disabled={disableForm || !videoFile || !title.trim() || isGeneratingThumb}
             className="w-full bg-white text-black py-4 rounded-lg font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors"
           >
-            {isUploading ? "Uploading…" : videoFile ? "Post Clip" : "Upload Video First"}
+            {isUploading
+              ? "Uploading…"
+              : isGeneratingThumb
+                ? "Preparing cover…"
+                : videoFile
+                  ? "Post Clip"
+                  : "Upload Video First"}
           </button>
         </div>
       </div>

@@ -10,6 +10,9 @@ export interface Post {
   timestamp: Timestamp | null
   likes?: string[]
   fileId?: string
+  thumbnailURL?: string
+  thumbnailFileId?: string
+  viewCount?: number
 }
 
 export interface CommentDoc {
@@ -32,6 +35,8 @@ export interface CreatePostInput {
   category: string
   userId: string
   fileId: string
+  thumbnailURL?: string
+  thumbnailFileId?: string
 }
 
 export interface CreateCommentInput {

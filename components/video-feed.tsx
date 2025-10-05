@@ -1,12 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useAuth } from "@/components/auth-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import CommentsOverlay from "@/components/comments-overlay"
 import VideoCard from "@/components/video-card"
-import { deletePost, toggleLike } from "@/lib/data/posts"
+import { deletePost, incrementViewCount, toggleLike } from "@/lib/data/posts"
 import type { Post } from "@/lib/types"
 
 interface LikeState {
@@ -26,6 +26,7 @@ export default function VideoFeed() {
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null)
+  const viewedPostsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!user?.uid) {
@@ -139,7 +140,7 @@ export default function VideoFeed() {
 
       setDeletingPostId(post.id)
       try {
-        await deletePost({ id: post.id, fileId: post.fileId })
+        await deletePost({ id: post.id, fileId: post.fileId, thumbnailFileId: post.thumbnailFileId })
       } catch (deleteError) {
         console.error("Failed to delete post", deleteError)
         alert("Failed to delete post. Please try again.")
@@ -203,6 +204,14 @@ export default function VideoFeed() {
               isDeleting={deletingPostId === post.id}
               isOwner={user?.uid === post.userId}
               showShareSuccess={copiedPostId === post.id}
+              onViewed={() => {
+                if (viewedPostsRef.current.has(post.id)) return
+                viewedPostsRef.current.add(post.id)
+                void incrementViewCount(post.id).catch((error) => {
+                  console.error("Failed to increment view count", error)
+                  viewedPostsRef.current.delete(post.id)
+                })
+              }}
             />
           )
         })
