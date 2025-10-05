@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true
 
+    // Watch Firebase auth for sign-in changes; anonymous users are bootstrapped automatically.
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return
 
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!isMounted) return
 
+      // Once we reach this point the app can safely render gated features.
       setUser(firebaseUser)
       setLoading(false)
       setError(undefined)

@@ -10,6 +10,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
       <PostsProvider>
+        {/* FiltersProvider shares category state across Search & Explore tabs. */}
         <FiltersProvider>{children}</FiltersProvider>
       </PostsProvider>
     </AuthProvider>

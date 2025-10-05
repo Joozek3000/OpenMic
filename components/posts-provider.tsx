@@ -14,11 +14,13 @@ interface PostsContextValue {
 const PostsContext = createContext<PostsContextValue | undefined>(undefined)
 
 export function PostsProvider({ children }: { children: ReactNode }) {
+  // Store the live results from the Firestore subscription.
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
+    // Firestore gives us realtime updates; unsubscribe when the component unmounts.
     const unsubscribe = listenToPosts(
       (postList) => {
         setPosts(postList)

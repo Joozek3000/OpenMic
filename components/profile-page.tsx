@@ -38,6 +38,7 @@ export default function ProfilePage() {
   )
 
   const totalViews = useMemo(
+    // Accumulate views so users can see how often their clips are watched.
     () => userPosts.reduce((sum, post) => sum + (post.viewCount ?? 0), 0),
     [userPosts],
   )
@@ -48,6 +49,7 @@ export default function ProfilePage() {
     if (!user || !displayName.trim()) return
     setIsSaving(true)
     try {
+      // Persist the chosen stage name so other users can see it in feed/search.
       await updateDisplayName(user.uid, displayName.trim())
       setFeedback("Stage name saved")
     } catch (error) {
@@ -63,6 +65,7 @@ export default function ProfilePage() {
     if (!user) return
     const link = `${window.location.origin}/profile/${user.uid}`
     try {
+      // Prefer the async clipboard API but fall back for older browsers.
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(link)
       } else {

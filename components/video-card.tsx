@@ -50,6 +50,7 @@ export default function VideoCard({
   const [isPlaying, setIsPlaying] = useState(false)
   const hasTrackedViewRef = useRef(false)
 
+  // Build derived values up front so the JSX stays tidy.
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
   const relativeTime = useMemo(() => formatRelativeTimestamp(post.timestamp), [post.timestamp])
   const categoryLabel = useMemo(() => getCategoryLabel(post.category), [post.category])
@@ -58,6 +59,7 @@ export default function VideoCard({
     const videoElement = videoRef.current
     if (!videoElement) return
 
+    // Drive autoplay/pause based on intersection and trigger view tracking exactly once.
     const handleVisible = (entries: IntersectionObserverEntry[]) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
@@ -71,6 +73,7 @@ export default function VideoCard({
           })
             .catch((error) => {
               if (!isMuted) {
+                // Browser blocked autoplay with sound, fall back to muted playback.
                 console.warn("Autoplay with sound blocked; reverting to muted", error)
                 videoElement.muted = true
                 setIsMuted(true)
@@ -104,6 +107,7 @@ export default function VideoCard({
     const videoElement = videoRef.current
     if (!videoElement) return
 
+    // Attempt to unmute and resume playback; browsers may reject until user interacts.
     if (isMuted) {
       videoElement.muted = false
       void videoElement.play()
@@ -125,6 +129,7 @@ export default function VideoCard({
   return (
     <div
       className="relative h-screen w-full snap-start bg-black"
+      // Global click toggles playback while action buttons stop propagation.
       onClick={() => {
         const videoElement = videoRef.current
         if (!videoElement) return

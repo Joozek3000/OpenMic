@@ -1,3 +1,4 @@
+// Firestore helpers for reading and mutating the `posts` collection.
 import {
   addDoc,
   arrayRemove,
@@ -45,6 +46,7 @@ export function listenToPosts(
   onUpdate: (posts: Post[]) => void,
   onError?: (error: FirestoreError) => void,
 ) {
+  // Subscribe to Firestore updates ordered by newest first.
   const postsQuery = query(postsCollection, orderBy("timestamp", "desc"))
   return onSnapshot(
     postsQuery,
@@ -57,6 +59,7 @@ export function listenToPosts(
 }
 
 export async function createPost(input: CreatePostInput) {
+  // Firestore will replace the timestamp server-side so the feed stays in sync globally.
   await addDoc(postsCollection, {
     title: input.title,
     description: input.description,
@@ -121,6 +124,7 @@ export async function deleteComment(postId: string, commentId: string) {
 export async function deletePost(post: Pick<Post, "id" | "fileId"> & { thumbnailFileId?: string | null }) {
   const postRef = doc(postsCollection, post.id)
 
+  // Remove nested comments before deleting the post document to avoid orphaned refs.
   const commentsRef = collection(db, "posts", post.id, "comments")
   const commentsSnapshot = await getDocs(commentsRef)
   await Promise.all(commentsSnapshot.docs.map((commentDoc) => deleteDoc(commentDoc.ref)))
@@ -139,6 +143,7 @@ export async function deletePost(post: Pick<Post, "id" | "fileId"> & { thumbnail
 }
 
 export async function uploadVideoFile(file: File) {
+  // Store raw clips under `videos/` with a random suffix to avoid collisions.
   const extension = file.name.split(".").pop() ?? "mp4"
   const uniqueId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)
   const fileId = `videos/${uniqueId}.${extension}`
@@ -149,6 +154,7 @@ export async function uploadVideoFile(file: File) {
 }
 
 export async function uploadThumbnailFile(blob: Blob) {
+  // Mirrors the video uploader but stores static posters under a different prefix.
   const uniqueId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)
   const fileId = `thumbnails/${uniqueId}.jpg`
   const storageRef = ref(storage, fileId)
@@ -160,6 +166,7 @@ export async function uploadThumbnailFile(blob: Blob) {
 }
 
 export async function incrementViewCount(postId: string) {
+  // Use Firestore's atomic increment to avoid race conditions between clients.
   const postRef = doc(db, "posts", postId)
   await updateDoc(postRef, {
     viewCount: increment(1),

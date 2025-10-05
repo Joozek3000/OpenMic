@@ -19,16 +19,20 @@ export default function VideoFeed() {
   const { posts, loading: postsLoading, error } = usePostsContext()
   const { user, loading: authLoading } = useAuth()
 
+  // UI state that tracks which post is currently showing the comment sheet.
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [showComments, setShowComments] = useState(false)
+  // Cache of like values so we can update the heart count instantly while Firestore writes.
   const [optimisticLikes, setOptimisticLikes] = useState<Record<string, LikeState>>({})
   const [likeError, setLikeError] = useState<string | null>(null)
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null)
+  // Remember which posts have already been counted as viewed during this session.
   const viewedPostsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
+    // Rehydrate optimistic like state whenever the Firestore snapshot or user changes.
     if (!user?.uid) {
       setOptimisticLikes({})
       return
@@ -70,6 +74,7 @@ export default function VideoFeed() {
     async (post: Post) => {
       if (!user || authLoading) return
 
+      // Baseline info in case we haven't interacted with this post yet.
       const currentState: LikeState = optimisticLikes[post.id] ?? {
         liked: post.likes?.includes(user.uid) ?? false,
         count: post.likes?.length ?? 0,
@@ -111,6 +116,7 @@ export default function VideoFeed() {
   )
 
   const handleShare = useCallback(async (post: Post) => {
+    // Copy the video URL to the clipboard with a DOM fallback for browsers without async clipboard.
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(post.videoURL)
@@ -205,6 +211,7 @@ export default function VideoFeed() {
               isOwner={user?.uid === post.userId}
               showShareSuccess={copiedPostId === post.id}
               onViewed={() => {
+                // Only increment in Firestore once per session so analytics stay realistic.
                 if (viewedPostsRef.current.has(post.id)) return
                 viewedPostsRef.current.add(post.id)
                 void incrementViewCount(post.id).catch((error) => {

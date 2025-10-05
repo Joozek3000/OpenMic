@@ -41,6 +41,7 @@ export default function SearchPage() {
   const normalizedQuery = searchQuery.trim().toLowerCase()
 
   const matchingPosts = useMemo(() => {
+    // Apply text + category filters against the live Firestore snapshot.
     return posts.filter((post) => {
       const matchesQuery =
         !normalizedQuery ||
@@ -52,14 +53,16 @@ export default function SearchPage() {
   }, [posts, normalizedQuery, category])
 
   const trendingPosts = useMemo(() => {
+    // Rank by views first, falling back to likes so high-engagement clips float up.
     return [...matchingPosts].sort((a, b) => {
-      const scoreA = (b.viewCount ?? 0) - (a.viewCount ?? 0)
-      if (scoreA !== 0) return scoreA
+      const viewDelta = (b.viewCount ?? 0) - (a.viewCount ?? 0)
+      if (viewDelta !== 0) return viewDelta
       return (b.likes?.length ?? 0) - (a.likes?.length ?? 0)
     })
   }, [matchingPosts])
 
   const userSummaries = useMemo(() => {
+    // Build per-comedian aggregates to drive the "Comics" tab.
     const aggregation = new Map<string, { sets: number; likes: number; views: number }>()
     matchingPosts.forEach((post) => {
       const entry = aggregation.get(post.userId) ?? { sets: 0, likes: 0, views: 0 }
@@ -74,6 +77,7 @@ export default function SearchPage() {
   }, [matchingPosts])
 
   const hashtagSummaries = useMemo(() => {
+    // Surface category chips with aggregated performance stats.
     return STANDUP_CATEGORIES.map((categoryItem) => {
       const filtered = matchingPosts.filter((post) => post.category === categoryItem.value)
       const totalLikes = filtered.reduce((sum, post) => sum + (post.likes?.length ?? 0), 0)
@@ -179,6 +183,7 @@ export default function SearchPage() {
                           className="object-cover transition-transform group-hover:scale-105"
                         />
                       ) : (
+                        // Fallback to the actual video if no poster image is available yet.
                         <video
                           src={post.videoURL}
                           className="h-full w-full object-cover transition-transform group-hover:scale-105"

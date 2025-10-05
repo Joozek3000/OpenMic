@@ -14,6 +14,7 @@ export default function ExplorePage() {
   const { category, setCategory } = useFilters()
 
   const curatedPosts = useMemo(() => {
+    // Share the category filter with Search so both tabs stay in sync.
     const filtered = category === "all" ? posts : posts.filter((post) => post.category === category)
     return [...filtered].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
   }, [posts, category])
@@ -75,6 +76,7 @@ export default function ExplorePage() {
                       className="object-cover transition-transform group-hover:scale-105"
                     />
                   ) : (
+                    // Without a stored thumbnail we still show a muted looping preview.
                     <video
                       src={post.videoURL}
                       className="h-full w-full object-cover transition-transform group-hover:scale-105"

@@ -10,6 +10,7 @@ interface FiltersContextValue {
 const FiltersContext = createContext<FiltersContextValue | undefined>(undefined)
 
 export function FiltersProvider({ children }: { children: ReactNode }) {
+  // Default to "all" so Search and Explore align until the user picks a category.
   const [category, setCategory] = useState<string>("all")
 
   const value = useMemo<FiltersContextValue>(() => ({ category, setCategory }), [category])

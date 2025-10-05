@@ -24,6 +24,7 @@ export default function UploadPage() {
   const [isGeneratingThumb, setIsGeneratingThumb] = useState(false)
 
   useEffect(() => {
+    // Clean up video preview URLs when the component unmounts or the file changes.
     return () => {
       if (videoPreview) {
         URL.revokeObjectURL(videoPreview)
@@ -31,9 +32,19 @@ export default function UploadPage() {
     }
   }, [videoPreview])
 
+  useEffect(() => {
+    // Also release the thumbnail blob preview once it is replaced.
+    return () => {
+      if (thumbnailPreview) {
+        URL.revokeObjectURL(thumbnailPreview)
+      }
+    }
+  }, [thumbnailPreview])
+
   const extractThumbnail = async (file: File) => {
     setIsGeneratingThumb(true)
     try {
+      // Capture the first frame client-side so Explore/Search can show a still even before playback.
       const thumbnailBlob = await new Promise<Blob | null>((resolve) => {
         const video = document.createElement("video")
         video.preload = "metadata"
@@ -104,6 +115,7 @@ export default function UploadPage() {
     }
   }
 
+  // Reset both the video and generated cover when the user removes their selection.
   const removeVideo = () => {
     setVideoFile(null)
     if (videoPreview) {
@@ -139,6 +151,7 @@ export default function UploadPage() {
     setFeedback(null)
 
     try {
+      // Upload the video first, then optionally upload the derived poster image.
       const { videoURL, fileId } = await uploadVideoFile(videoFile)
       let thumbnailFileId: string | undefined
       let thumbnailURL: string | undefined
@@ -169,6 +182,7 @@ export default function UploadPage() {
     }
   }
 
+  // Disable interactions while auth is loading, uploading, or we lack a selected clip.
   const disableForm = authLoading || !user || isUploading
 
   return (
@@ -206,6 +220,7 @@ export default function UploadPage() {
                     <ImageIcon className="absolute inset-0 m-auto h-5 w-5 text-gray-500" />
                     <Image src={thumbnailPreview} alt="Thumbnail preview" fill className="object-cover" />
                   </div>
+                  {/* Keep the preview minimal; we only need to reassure the user a cover exists. */}
                   <span>Cover image ready</span>
                 </div>
               )}
