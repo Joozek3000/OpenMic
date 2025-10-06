@@ -6,6 +6,7 @@ import Image from "next/image"
 
 import type { Post } from "@/lib/types"
 import { buildAvatarPlaceholder, formatLargeNumber, formatRelativeTimestamp, getCategoryLabel } from "@/lib/utils"
+import { usePlaybackSettings } from "@/components/playback-settings-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
 
 interface LikeState {
@@ -51,10 +52,11 @@ export default function VideoCard({
   onToggleFollow,
   followDisabled = false,
 }: VideoCardProps) {
+  const { preferences } = usePlaybackSettings()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
   const [videoError, setVideoError] = useState(false)
-  const [isMuted, setIsMuted] = useState(true)
+  const [isMuted, setIsMuted] = useState(preferences.startMuted)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPortrait, setIsPortrait] = useState(false)
   const hasTrackedViewRef = useRef(false)
@@ -76,15 +78,23 @@ export default function VideoCard({
     // Drive autoplay/pause based on intersection and trigger view tracking exactly once.
     const handleVisible = (entries: IntersectionObserverEntry[]) => {
       entries.forEach((entry) => {
+        if (entry.target !== videoElement) return
+
         if (entry.isIntersecting) {
+          if (!preferences.autoplay) {
+            return
+          }
+
           if (!hasTrackedViewRef.current) {
             hasTrackedViewRef.current = true
             onViewed?.()
           }
           videoElement.muted = isMuted
-          void videoElement.play().then(() => {
-            setIsPlaying(true)
-          })
+          void videoElement
+            .play()
+            .then(() => {
+              setIsPlaying(true)
+            })
             .catch((error) => {
               if (!isMuted) {
                 // Browser blocked autoplay with sound, fall back to muted playback.
@@ -96,7 +106,7 @@ export default function VideoCard({
                 console.error("Video playback failed", error)
               }
             })
-        } else {
+        } else if (!videoElement.paused) {
           videoElement.pause()
           setIsPlaying(false)
         }
@@ -109,13 +119,27 @@ export default function VideoCard({
     return () => {
       observer.disconnect()
     }
-  }, [isMuted, onViewed])
+  }, [isMuted, onViewed, preferences.autoplay])
 
   useEffect(() => {
     const videoElement = videoRef.current
     if (!videoElement) return
     videoElement.muted = isMuted
   }, [isMuted])
+
+  useEffect(() => {
+    if (preferences.autoplay) return
+    const videoElement = videoRef.current
+    if (!videoElement) return
+    if (!videoElement.paused) {
+      videoElement.pause()
+      setIsPlaying(false)
+    }
+  }, [preferences.autoplay])
+
+  useEffect(() => {
+    setIsMuted(preferences.startMuted)
+  }, [preferences.startMuted])
 
   const handleToggleMute = () => {
     const videoElement = videoRef.current
@@ -177,12 +201,18 @@ export default function VideoCard({
                   ? "h-full max-h-full w-auto max-w-full object-contain"
                   : "h-full w-full object-cover"
               }
-              loop
+              loop={preferences.loop}
               playsInline
               muted={isMuted}
               controls={false}
               onError={() => setVideoError(true)}
-              onPlay={() => setIsPlaying(true)}
+              onPlay={() => {
+                setIsPlaying(true)
+                if (!hasTrackedViewRef.current) {
+                  hasTrackedViewRef.current = true
+                  onViewed?.()
+                }
+              }}
               onPause={() => setIsPlaying(false)}
               onLoadedMetadata={(event) => {
                 const media = event.currentTarget

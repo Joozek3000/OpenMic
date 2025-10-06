@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Play, Compass } from "lucide-react"
 import Image from "next/image"
 
@@ -16,7 +16,6 @@ interface ExplorePageProps {
 export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
   const { posts, loading } = usePostsContext()
   const { category, setCategory } = useFilters()
-
   const curatedPosts = useMemo(() => {
     // Share the category filter with Search so both tabs stay in sync.
     const filtered = category === "all" ? posts : posts.filter((post) => post.category === category)
@@ -24,6 +23,42 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
   }, [posts, category])
 
   const totalViews = useMemo(() => curatedPosts.reduce((sum, post) => sum + (post.viewCount ?? 0), 0), [curatedPosts])
+
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>()
+    posts.forEach((post) => {
+      if (post.category) {
+        categories.add(post.category)
+      }
+    })
+    if (categories.size === 0) {
+      return STANDUP_CATEGORIES
+    }
+    return STANDUP_CATEGORIES.filter((categoryOption) => categories.has(categoryOption.value))
+  }, [posts])
+
+  useEffect(() => {
+    if (category === "all") return
+    const stillAvailable = availableCategories.some((categoryOption) => categoryOption.value === category)
+    if (!stillAvailable) {
+      setCategory("all")
+    }
+  }, [availableCategories, category, setCategory])
+
+  const [visibleCount, setVisibleCount] = useState(12)
+
+  useEffect(() => {
+    setVisibleCount(12)
+  }, [category])
+
+  useEffect(() => {
+    setVisibleCount((count) => {
+      if (curatedPosts.length === 0) {
+        return 12
+      }
+      return Math.min(count, Math.max(12, curatedPosts.length))
+    })
+  }, [curatedPosts.length])
 
   return (
     <div className="h-full bg-black text-white overflow-y-auto">
@@ -35,28 +70,32 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
           </div>
           <p className="text-gray-400 text-sm mb-4">{formatLargeNumber(totalViews)} total views across this selection.</p>
 
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
-            <button
-              onClick={() => setCategory("all")}
-              className={`px-4 py-2 rounded-full font-medium whitespace-nowrap transition-colors ${
-                category === "all" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
-              }`}
-            >
-              For You
-            </button>
-            {STANDUP_CATEGORIES.map((categoryOption) => (
+          <div className="-mx-4">
+            <div className="flex flex-wrap gap-2 px-4 pb-3 pt-4">
               <button
-                key={categoryOption.value}
-                onClick={() => setCategory(categoryOption.value)}
-                className={`px-4 py-2 rounded-full font-medium whitespace-nowrap transition-colors ${
-                  category === categoryOption.value
-                    ? "bg-white text-black"
-                    : "bg-gray-800 text-gray-300 hover:text-white"
+                onClick={() => setCategory("all")}
+                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                  category === "all"
+                    ? "bg-white text-black border-white shadow-sm"
+                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
                 }`}
               >
-                {categoryOption.label}
+                For You
               </button>
-            ))}
+              {availableCategories.map((categoryOption) => (
+                <button
+                  key={categoryOption.value}
+                  onClick={() => setCategory(categoryOption.value)}
+                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                    category === categoryOption.value
+                      ? "bg-white text-black border-white shadow-sm"
+                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                  }`}
+                >
+                  {categoryOption.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -67,7 +106,7 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
             <div className="text-center text-gray-400 py-12">No sets in this category yet.</div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {curatedPosts.slice(0, 20).map((post) => (
+              {curatedPosts.slice(0, visibleCount).map((post) => (
                 <div
                   key={post.id}
                   className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
@@ -108,11 +147,21 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
             </div>
           )}
 
-          <div className="py-8 text-center">
-            <button className="bg-gray-800 text-white px-6 py-3 rounded-full font-medium hover:bg-gray-700 transition-colors">
-              Load More Sets
-            </button>
-          </div>
+          {curatedPosts.length > visibleCount ? (
+            <div className="py-8 text-center">
+              <button
+                onClick={() => setVisibleCount((count) => Math.min(count + 12, curatedPosts.length))}
+                disabled={loading}
+                className="bg-gray-800 text-white px-6 py-3 rounded-full font-medium hover:bg-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Load More Sets
+              </button>
+            </div>
+          ) : (
+            curatedPosts.length > 0 && (
+              <div className="py-8 text-center text-sm text-gray-500">You're all caught up.</div>
+            )
+          )}
         </div>
       </div>
     </div>

@@ -53,10 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      try {
-        await ensureUserProfile(firebaseUser.uid)
-      } catch (profileError) {
-        console.error("Failed to ensure user profile", profileError)
+      const isAnonymous = firebaseUser.isAnonymous || firebaseUser.providerData.length === 0
+
+      if (!isAnonymous) {
+        try {
+          await ensureUserProfile(firebaseUser.uid)
+        } catch (profileError) {
+          console.error("Failed to ensure user profile", profileError)
+        }
       }
 
       if (!isMounted) return

@@ -1,11 +1,11 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Search, TrendingUp, Hash, Play } from "lucide-react"
 import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
-import { useFilters } from "@/components/filters-provider"
+import { useFilters, type SortOrder } from "@/components/filters-provider"
 import { useFollow } from "@/components/follow-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
@@ -59,10 +59,15 @@ function SearchUserRow({ userId, sets, likes, views, onToggleFollow, isFollowing
 
 export default function SearchPage({ onSelectPost }: SearchPageProps) {
   const { posts, loading } = usePostsContext()
-  const { category, setCategory } = useFilters()
+  const { category, setCategory, sortOrder, setSortOrder } = useFilters()
   const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState("trending")
+  const sortOptions: { key: SortOrder; label: string }[] = [
+    { key: "trending", label: "Trending" },
+    { key: "newest", label: "Newest" },
+    { key: "likes", label: "Most Liked" },
+  ]
 
   const normalizedQuery = searchQuery.trim().toLowerCase()
 
@@ -78,14 +83,26 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
     })
   }, [posts, normalizedQuery, category])
 
-  const trendingPosts = useMemo(() => {
-    // Rank by views first, falling back to likes so high-engagement clips float up.
-    return [...matchingPosts].sort((a, b) => {
+  const sortedPosts = useMemo(() => {
+    const postsToSort = [...matchingPosts]
+    const toMillis = (timestamp: (typeof matchingPosts)[number]["timestamp"]) =>
+      typeof timestamp?.toMillis === "function" ? timestamp.toMillis() : 0
+
+    if (sortOrder === "newest") {
+      return postsToSort.sort((a, b) => toMillis(b.timestamp) - toMillis(a.timestamp))
+    }
+
+    if (sortOrder === "likes") {
+      return postsToSort.sort((a, b) => (b.likes?.length ?? 0) - (a.likes?.length ?? 0))
+    }
+
+    // Default to trending: prioritize views, then likes as a tie-breaker.
+    return postsToSort.sort((a, b) => {
       const viewDelta = (b.viewCount ?? 0) - (a.viewCount ?? 0)
       if (viewDelta !== 0) return viewDelta
       return (b.likes?.length ?? 0) - (a.likes?.length ?? 0)
     })
-  }, [matchingPosts])
+  }, [matchingPosts, sortOrder])
 
   const userSummaries = useMemo(() => {
     // Build per-comedian aggregates to drive the "Comics" tab.
@@ -117,6 +134,27 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
     }).filter((entry) => entry.count > 0)
   }, [matchingPosts])
 
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>()
+    posts.forEach((post) => {
+      if (post.category) {
+        categories.add(post.category)
+      }
+    })
+    if (categories.size === 0) {
+      return STANDUP_CATEGORIES
+    }
+    return STANDUP_CATEGORIES.filter((categoryOption) => categories.has(categoryOption.value))
+  }, [posts])
+
+  useEffect(() => {
+    if (category === "all") return
+    const stillAvailable = availableCategories.some((categoryOption) => categoryOption.value === category)
+    if (!stillAvailable) {
+      setCategory("all")
+    }
+  }, [availableCategories, category, setCategory])
+
   return (
     <div className="h-full bg-black text-white overflow-y-auto">
       <div className="max-w-md mx-auto">
@@ -134,28 +172,32 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
             />
           </div>
 
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-4">
-            <button
-              onClick={() => setCategory("all")}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                category === "all" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
-              }`}
-            >
-              All Comedy
-            </button>
-            {STANDUP_CATEGORIES.map((categoryOption) => (
+          <div className="-mx-4 mb-4">
+            <div className="flex flex-wrap gap-2 px-4 pb-3 pt-4">
               <button
-                key={categoryOption.value}
-                onClick={() => setCategory(categoryOption.value)}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                  category === categoryOption.value
-                    ? "bg-white text-black"
-                    : "bg-gray-800 text-gray-300 hover:text-white"
+                onClick={() => setCategory("all")}
+                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                  category === "all"
+                    ? "bg-white text-black border-white shadow-sm"
+                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
                 }`}
               >
-                {categoryOption.label}
+                All Comedy
               </button>
-            ))}
+              {availableCategories.map((categoryOption) => (
+                <button
+                  key={categoryOption.value}
+                  onClick={() => setCategory(categoryOption.value)}
+                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                    category === categoryOption.value
+                      ? "bg-white text-black border-white shadow-sm"
+                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                  }`}
+                >
+                  {categoryOption.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex gap-4 mb-6">
@@ -195,11 +237,28 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
                 <TrendingUp size={20} className="text-red-500" />
                 <h2 className="text-lg font-semibold">Trending Stand-Up</h2>
               </div>
-              {trendingPosts.length === 0 ? (
+              <div className="-mx-4 mb-4">
+                <div className="flex flex-wrap gap-2 px-4 pb-2 pt-3">
+                  {sortOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      onClick={() => setSortOrder(option.key)}
+                      className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                        sortOrder === option.key
+                          ? "bg-white text-black border-white shadow-sm"
+                          : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {sortedPosts.length === 0 ? (
                 <p className="text-gray-400 text-sm">No sets match your search yet.</p>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
-                  {trendingPosts.slice(0, 12).map((post) => (
+                  {sortedPosts.slice(0, 12).map((post) => (
                     <div
                       key={post.id}
                       className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"

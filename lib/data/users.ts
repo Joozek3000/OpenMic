@@ -1,15 +1,23 @@
 import { arrayRemove, arrayUnion, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore"
 
-import { db } from "@/lib/firebase"
+import { auth, db } from "@/lib/firebase"
 import type { UserProfile } from "@/lib/types"
 
 const displayNameCache = new Map<string, string | null>()
 
 export async function ensureUserProfile(userId: string) {
+  if (auth.currentUser?.uid !== userId) {
+    return
+  }
+
   const userRef = doc(db, "users", userId)
   const snapshot = await getDoc(userRef)
 
   if (!snapshot.exists()) {
+    if (auth.currentUser?.uid !== userId) {
+      return
+    }
+
     await setDoc(userRef, {
       updatedAt: serverTimestamp(),
       following: [],

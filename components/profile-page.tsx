@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Settings, Grid, Heart, UserPlus, Save } from "lucide-react"
+import { Settings, Grid, Heart, UserPlus, Save, X } from "lucide-react"
 import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
@@ -9,6 +9,7 @@ import { usePostsContext } from "@/components/posts-provider"
 import { updateDisplayName } from "@/lib/data/users"
 import { buildAvatarPlaceholder, formatLargeNumber } from "@/lib/utils"
 import { useDisplayName } from "@/hooks/use-display-name"
+import { usePlaybackSettings } from "@/components/playback-settings-provider"
 
 interface ProfilePageProps {
   onSelectPost: (postId: string) => void
@@ -23,6 +24,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
   const [displayName, setDisplayName] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
     if (savedDisplayName) {
@@ -110,7 +112,10 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
                 Sign in
               </button>
             )}
-            <button className="p-2 hover:bg-gray-800 rounded-full transition-colors">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 hover:bg-gray-800 rounded-full transition-colors"
+            >
               <Settings size={24} />
             </button>
           </div>
@@ -269,6 +274,107 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
           )}
         </div>
       </div>
+
+      {showSettings && <SettingsSheet onClose={() => setShowSettings(false)} />}
     </div>
+  )
+}
+
+interface SettingsSheetProps {
+  onClose: () => void
+}
+
+function SettingsSheet({ onClose }: SettingsSheetProps) {
+  const { preferences, setPreference, reset } = usePlaybackSettings()
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-gray-900 p-6 shadow-lg">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Playback preferences</h2>
+            <p className="text-sm text-gray-400">Tune how videos behave across the app.</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+            type="button"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <SettingToggle
+            label="Autoplay in feed"
+            description="Start playing clips automatically when they appear on screen."
+            active={preferences.autoplay}
+            onToggle={() => setPreference("autoplay", !preferences.autoplay)}
+          />
+          <SettingToggle
+            label="Start muted"
+            description="Keep the feed silent until you tap for sound."
+            active={preferences.startMuted}
+            onToggle={() => setPreference("startMuted", !preferences.startMuted)}
+          />
+          <SettingToggle
+            label="Loop videos"
+            description="Repeat clips continuously while they stay in view."
+            active={preferences.loop}
+            onToggle={() => setPreference("loop", !preferences.loop)}
+          />
+        </div>
+
+        <div className="mt-6 flex items-center justify-between text-sm text-gray-400">
+          <button
+            onClick={reset}
+            className="underline underline-offset-4 hover:text-white"
+            type="button"
+          >
+            Reset defaults
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-lg bg-white px-4 py-2 font-semibold text-black hover:bg-gray-200"
+            type="button"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface SettingToggleProps {
+  label: string
+  description: string
+  active: boolean
+  onToggle: () => void
+}
+
+function SettingToggle({ label, description, active, onToggle }: SettingToggleProps) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-center justify-between rounded-xl border border-gray-800 bg-gray-900 p-4 text-left transition-colors hover:border-gray-700 hover:bg-gray-800"
+    >
+      <div className="pr-4">
+        <p className="text-sm font-semibold text-white">{label}</p>
+        <p className="text-xs text-gray-400">{description}</p>
+      </div>
+      <span
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          active ? "bg-emerald-500" : "bg-gray-600"
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+            active ? "translate-x-5" : "translate-x-1"
+          }`}
+        />
+      </span>
+    </button>
   )
 }

@@ -19,6 +19,8 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [localError, setLocalError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   useEffect(() => {
     if (!open) {
@@ -26,6 +28,8 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
       setPassword("")
       setConfirmPassword("")
       setLocalError(null)
+      setShowPassword(false)
+      setShowConfirmPassword(false)
       setMode("signin")
     }
   }, [open])
@@ -79,26 +83,44 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white focus:border-white focus:outline-none"
-              placeholder="••••••••"
-              autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 pr-12 text-white focus:border-white focus:outline-none"
+                placeholder="••••••••"
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-xs font-medium uppercase tracking-wide text-gray-400 hover:text-white"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           {mode === "signup" && (
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">Confirm password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white focus:border-white focus:outline-none"
-                placeholder="••••••••"
-                autoComplete="new-password"
-              />
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 pr-12 text-white focus:border-white focus:outline-none"
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-xs font-medium uppercase tracking-wide text-gray-400 hover:text-white"
+                >
+                  {showConfirmPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </div>
           )}
 
