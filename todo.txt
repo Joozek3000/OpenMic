@@ -1,0 +1,82 @@
+Here’s the consolidated roadmap so we can track what’s left for the MVP and
+  what sits in the longer-term vision.
+
+  Queued Enhancements (Post-MVP Polish)
+
+  - Profile Enrichment
+      - Editable bio, social links, website, “upcoming shows” list.
+      - Persist in Firestore, surface in the mini profile sheet and full profile
+        page.
+  - Search & Explore Improvements
+      - Add proper infinite scroll/pagination to the Search grid.
+      - Rich empty states with suggested tags or “reset filters.”
+      - Optional multi-select or favorite categories synced via FiltersProvider.
+  - Feed UX Upgrades
+      - Prefetch the next video to cut playback delays.
+      - Visual swipe cues or subtle haptics (e.g., ghost arrows, card preview).
+  - Dev Tooling
+      - Buttons to reset filters, seed/delete mock posts/comments, toggle
+        network latency, and jump straight to specific tabs.
+      - Quick export of current app state (filters, playback prefs) for bug
+        reports.
+  - Profile Settings Quality-of-Life
+      - Inline validation for bios/links (length, URL format).
+      - Ability to clear/reset display name with confirmation.
+
+  Events & Venues Foundation (Next Major Milestone)
+
+  - Data Model
+      - Firestore collections for venues, events, host assignments, and event-
+        series templates.
+      - Admin or dev-tool seeding flow (CSV import, manual add).
+  - Map & Nearby Discovery
+      - Map view (Leaflet/Mapbox) with filters for date, category, free/paid,
+        accessibility.
+      - Venue details modal with address, photos, ticket links, verified badge.
+      - “Performing here” check-ins so fans see lineups and comics can promote
+        gigs.
+  - Ticket/Calendar Hooks
+      - CTA buttons: “Buy tickets,” “RSVP,” iCal export.
+      - Optional affiliate codes / UTMs for venues.
+
+  Profile & Fan Engagement
+
+  - Public Profiles
+      - SEO-friendly, shareable pages combining bio, clips, events, merch links.
+      - “Follow” / “Notify me” actions for fans (email/push integration later).
+  - Privacy Controls
+      - Toggle profile visibility (public/unlisted) and per-clip privacy.
+  - Follower Analytics
+      - Basic dashboard: views over time, likes, audience geography (once data
+        available).
+      - Email digest for comics (“Your week in OpenMic”).
+
+  Playback & Performance Options
+
+  - Data Saver Mode
+      - Lower bitrate, disable autoplay on cellular, indicate when it’s active.
+  - Viewer Controls
+      - Toggle captions/subtitles (future when transcripts exist).
+      - Replay speed (1.25x, 0.75x) for rehearsal reviews.
+
+  Monetization/Partnerships
+
+  - Venue Collaboration
+      - Verified venue profiles, ability to submit events, request featured
+        placement.
+      - Revenue-sharing tracking or affiliate commissions.
+  - Comedian Revenue Features
+      - Tip links, merch integration (Linktree-style), premium content flagging.
+  - Ad/Sponsor Slots
+      - Reserved card sections in Explore/Search for sponsors or sponsored
+        shows.
+
+  Dev & Testing Utilities
+
+  - Dev Tool Enhancements
+      - Export/import local app state (JSON) for bug reproduction.
+      - Toggle for mocked Firestore delays / error injection.
+  - Automated QA Hooks
+      - Scripted seeding for posts, comments, venues to simulate a full demo
+        environment.
+

@@ -6,7 +6,7 @@ import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
 import { usePostsContext } from "@/components/posts-provider"
-import { updateDisplayName } from "@/lib/data/users"
+import { updateDisplayName, DisplayNameUnavailableError } from "@/lib/data/users"
 import { buildAvatarPlaceholder, formatLargeNumber } from "@/lib/utils"
 import { useDisplayName } from "@/hooks/use-display-name"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
@@ -24,6 +24,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
   const [displayName, setDisplayName] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [feedbackVariant, setFeedbackVariant] = useState<"success" | "error">("success")
   const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
@@ -64,12 +65,22 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
       // Persist the chosen stage name so other users can see it in feed/search.
       await updateDisplayName(user.uid, displayName.trim())
       setFeedback("Stage name saved")
+      setFeedbackVariant("success")
     } catch (error) {
       console.error("Failed to update display name", error)
-      setFeedback("Could not save name. Try again.")
+      if (error instanceof DisplayNameUnavailableError) {
+        setFeedback("That stage name is already taken.")
+        setFeedbackVariant("error")
+      } else {
+        setFeedback("Could not save name. Try again.")
+        setFeedbackVariant("error")
+      }
     } finally {
       setIsSaving(false)
-      setTimeout(() => setFeedback(null), 3000)
+      setTimeout(() => {
+        setFeedback(null)
+        setFeedbackVariant("success")
+      }, 3000)
     }
   }
 
@@ -190,7 +201,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
                 {authLoading ? "Signing out…" : "Sign out"}
               </button>
             )}
-            {feedback && <p className="text-sm text-emerald-300">{feedback}</p>}
+            {feedback && (
+              <p className={`text-sm ${feedbackVariant === "error" ? "text-red-400" : "text-emerald-300"}`}>
+                {feedback}
+              </p>
+            )}
           </div>
         </div>
 

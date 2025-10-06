@@ -39,7 +39,7 @@ export default function Home() {
       case "home":
         return <VideoFeed ref={feedRef} />
       case "search":
-        return <SearchPage onSelectPost={handleSelectPost} />
+        return <SearchPage onSelectPost={handleSelectPost} onRequestAuth={() => setAuthModalOpen(true)} />
       case "upload":
         return <UploadPage />
       case "explore":

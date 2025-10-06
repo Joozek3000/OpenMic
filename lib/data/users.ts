@@ -1,9 +1,29 @@
-import { arrayRemove, arrayUnion, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore"
+import {
+  arrayRemove,
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore"
 
 import { auth, db } from "@/lib/firebase"
 import type { UserProfile } from "@/lib/types"
 
 const displayNameCache = new Map<string, string | null>()
+
+export class DisplayNameUnavailableError extends Error {
+  constructor(name: string) {
+    super(`The name "${name}" is already in use.`)
+    this.name = "DisplayNameUnavailableError"
+  }
+}
 
 export async function ensureUserProfile(userId: string) {
   if (auth.currentUser?.uid !== userId) {
@@ -21,6 +41,7 @@ export async function ensureUserProfile(userId: string) {
     await setDoc(userRef, {
       updatedAt: serverTimestamp(),
       following: [],
+      displayNameLower: null,
     })
   }
 }
@@ -44,16 +65,35 @@ export async function getDisplayName(userId: string) {
 }
 
 export async function updateDisplayName(userId: string, displayName: string) {
+  const trimmed = displayName.trim()
+  if (!trimmed) {
+    throw new Error("Display name cannot be empty")
+  }
+
+  const normalized = trimmed.toLowerCase()
+
+  const matches = await getDocs(
+    query(collection(db, "users"), where("displayNameLower", "==", normalized), limit(1)),
+  )
+
+  if (!matches.empty) {
+    const existing = matches.docs[0]
+    if (existing.id !== userId) {
+      throw new DisplayNameUnavailableError(trimmed)
+    }
+  }
+
   const userRef = doc(db, "users", userId)
   await setDoc(
     userRef,
     {
-      displayName,
+      displayName: trimmed,
+      displayNameLower: normalized,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
   )
-  displayNameCache.set(userId, displayName)
+  displayNameCache.set(userId, trimmed)
 }
 
 export async function getUserProfile(userId: string) {

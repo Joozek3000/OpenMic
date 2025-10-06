@@ -83,7 +83,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   }, [comments.length, onCommentCountChange, postId])
 
   const handleSubmit = async () => {
-    if (!user || !newComment.trim()) return
+    if (!user || !newComment.trim() || disableActions || posting) return
     setPosting(true)
     try {
       await addComment({ postId, text: newComment.trim(), userId: user.uid })
@@ -153,6 +153,12 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
                 type="text"
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault()
+                    void handleSubmit()
+                  }
+                }}
                 placeholder={disableActions ? "Sign in to add a comment" : "Add a comment..."}
                 disabled={posting || disableActions}
                 className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-60"

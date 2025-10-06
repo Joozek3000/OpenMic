@@ -10,10 +10,13 @@ import { useFollow } from "@/components/follow-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { buildAvatarPlaceholder, formatLargeNumber, getCategoryLabel } from "@/lib/utils"
+import type { Post } from "@/lib/types"
 import { useDisplayName } from "@/hooks/use-display-name"
+import { getDisplayName } from "@/lib/data/users"
 
 interface SearchPageProps {
   onSelectPost: (postId: string) => void
+  onRequestAuth?: () => void
 }
 
 interface SearchUserRowProps {
@@ -24,16 +27,42 @@ interface SearchUserRowProps {
   onToggleFollow: () => void
   isFollowing: boolean
   disabled: boolean
+  onOpenProfile: () => void
+  onRequestAuth?: () => void
+  displayNameHint?: string
 }
 
-function SearchUserRow({ userId, sets, likes, views, onToggleFollow, isFollowing, disabled }: SearchUserRowProps) {
+function SearchUserRow({
+  userId,
+  sets,
+  likes,
+  views,
+  onToggleFollow,
+  isFollowing,
+  disabled,
+  onOpenProfile,
+  onRequestAuth,
+  displayNameHint,
+}: SearchUserRowProps) {
   const { user } = useAuth()
-  const name = useDisplayName(userId) ?? "Anonymous"
+  const fetchedName = useDisplayName(userId)
+  const name = displayNameHint && displayNameHint.length > 0 ? displayNameHint : fetchedName ?? "Anonymous"
   const avatar = useMemo(() => buildAvatarPlaceholder(name || userId), [name, userId])
+  const canFollow = !!user && !user.isAnonymous && user.uid !== userId
+  const buttonLabel = canFollow ? (isFollowing ? "Following" : "Follow") : "Sign in"
+  const buttonClasses = canFollow
+    ? isFollowing
+      ? "bg-white/10 text-white"
+      : "bg-white text-black hover:bg-gray-200"
+    : "bg-white text-black"
 
   return (
     <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={onOpenProfile}
+        className="flex items-center gap-3 text-left transition-transform hover:scale-[1.01]"
+      >
         <Image src={avatar} alt={name} width={40} height={40} className="rounded-full" />
         <div>
           <div className="font-semibold">@{name.replace(/\s+/g, "").toLowerCase()}</div>
@@ -41,47 +70,73 @@ function SearchUserRow({ userId, sets, likes, views, onToggleFollow, isFollowing
             {sets} {sets === 1 ? "set" : "sets"} · {formatLargeNumber(views)} views · {formatLargeNumber(likes)} laughs
           </div>
         </div>
-      </div>
+      </button>
       {user?.uid !== userId && (
         <button
-          onClick={onToggleFollow}
-          disabled={disabled}
-          className={`px-4 py-1 rounded-full text-sm font-semibold transition-colors ${
-            isFollowing ? "bg-white/10 text-white" : "bg-white text-black hover:bg-gray-200"
-          } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+          onClick={() => {
+            if (!canFollow) {
+              onRequestAuth?.()
+              return
+            }
+            onToggleFollow()
+          }}
+          disabled={disabled || (!canFollow && !onRequestAuth)}
+          className={`px-4 py-1 rounded-full text-sm font-semibold transition-colors ${buttonClasses} ${
+            disabled || (!canFollow && !onRequestAuth) ? "opacity-60 cursor-not-allowed" : ""
+          }`}
         >
-          {isFollowing ? "Following" : "Follow"}
+          {buttonLabel}
         </button>
       )}
     </div>
   )
 }
 
-export default function SearchPage({ onSelectPost }: SearchPageProps) {
+export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPageProps) {
   const { posts, loading } = usePostsContext()
   const { category, setCategory, sortOrder, setSortOrder } = useFilters()
   const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState("trending")
+  const [selectedProfile, setSelectedProfile] = useState<
+    | null
+    | {
+        userId: string
+        sets: number
+        likes: number
+        views: number
+        displayName?: string
+      }
+  >(null)
   const sortOptions: { key: SortOrder; label: string }[] = [
     { key: "trending", label: "Trending" },
     { key: "newest", label: "Newest" },
     { key: "likes", label: "Most Liked" },
   ]
+  const [displayNames, setDisplayNames] = useState<Record<string, string>>({})
 
   const normalizedQuery = searchQuery.trim().toLowerCase()
 
+  const categoryFilteredPosts = useMemo(
+    () => (category === "all" ? posts : posts.filter((post) => post.category === category)),
+    [posts, category],
+  )
+
   const matchingPosts = useMemo(() => {
-    // Apply text + category filters against the live Firestore snapshot.
-    return posts.filter((post) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        post.title.toLowerCase().includes(normalizedQuery) ||
-        post.description.toLowerCase().includes(normalizedQuery)
-      const matchesCategory = category === "all" || post.category === category
-      return matchesQuery && matchesCategory
+    // Apply text + profile filters against the category-scoped subset.
+    return categoryFilteredPosts.filter((post) => {
+      if (!normalizedQuery) return true
+      const title = post.title.toLowerCase()
+      const description = post.description.toLowerCase()
+      if (title.includes(normalizedQuery) || description.includes(normalizedQuery)) {
+        return true
+      }
+      const displayName = displayNames[post.userId]?.toLowerCase() ?? ""
+      const handle = displayName.replace(/\s+/g, "")
+      const userIdLower = post.userId.toLowerCase()
+      return displayName.includes(normalizedQuery) || handle.includes(normalizedQuery) || userIdLower.includes(normalizedQuery)
     })
-  }, [posts, normalizedQuery, category])
+  }, [categoryFilteredPosts, displayNames, normalizedQuery])
 
   const sortedPosts = useMemo(() => {
     const postsToSort = [...matchingPosts]
@@ -105,9 +160,9 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
   }, [matchingPosts, sortOrder])
 
   const userSummaries = useMemo(() => {
-    // Build per-comedian aggregates to drive the "Comics" tab.
+    // Build per-comedian aggregates scoped to the selected category.
     const aggregation = new Map<string, { sets: number; likes: number; views: number }>()
-    matchingPosts.forEach((post) => {
+    categoryFilteredPosts.forEach((post) => {
       const entry = aggregation.get(post.userId) ?? { sets: 0, likes: 0, views: 0 }
       entry.sets += 1
       entry.likes += post.likes?.length ?? 0
@@ -117,12 +172,37 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
     return Array.from(aggregation.entries())
       .map(([userId, stats]) => ({ userId, ...stats }))
       .sort((a, b) => b.views - a.views)
-  }, [matchingPosts])
+  }, [categoryFilteredPosts])
+
+  const filteredUserSummaries = useMemo(() => {
+    if (!normalizedQuery) {
+      return userSummaries
+    }
+
+    return userSummaries.filter((summary) => {
+      const displayName = displayNames[summary.userId]?.toLowerCase() ?? ""
+      const handle = displayName.replace(/\s+/g, "")
+      const userIdLower = summary.userId.toLowerCase()
+      const matchesIdentity =
+        displayName.includes(normalizedQuery) || handle.includes(normalizedQuery) || userIdLower.includes(normalizedQuery)
+
+      if (matchesIdentity) {
+        return true
+      }
+
+      return categoryFilteredPosts.some((post) => {
+        if (post.userId !== summary.userId) return false
+        const title = post.title.toLowerCase()
+        const description = post.description.toLowerCase()
+        return title.includes(normalizedQuery) || description.includes(normalizedQuery)
+      })
+    })
+  }, [categoryFilteredPosts, displayNames, normalizedQuery, userSummaries])
 
   const hashtagSummaries = useMemo(() => {
     // Surface category chips with aggregated performance stats.
     return STANDUP_CATEGORIES.map((categoryItem) => {
-      const filtered = matchingPosts.filter((post) => post.category === categoryItem.value)
+      const filtered = categoryFilteredPosts.filter((post) => post.category === categoryItem.value)
       const totalLikes = filtered.reduce((sum, post) => sum + (post.likes?.length ?? 0), 0)
       const totalViews = filtered.reduce((sum, post) => sum + (post.viewCount ?? 0), 0)
       return {
@@ -132,7 +212,38 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
         views: totalViews,
       }
     }).filter((entry) => entry.count > 0)
-  }, [matchingPosts])
+  }, [categoryFilteredPosts])
+
+  useEffect(() => {
+    const userIds = Array.from(new Set(categoryFilteredPosts.map((post) => post.userId)))
+    const missingIds = userIds.filter((id) => !(id in displayNames))
+    if (missingIds.length === 0) return
+
+    let isMounted = true
+
+    const loadDisplayNames = async () => {
+      const entries = await Promise.all(
+        missingIds.map(async (id) => {
+          const name = await getDisplayName(id)
+          return [id, name?.trim() ?? ""] as const
+        }),
+      )
+      if (!isMounted) return
+      setDisplayNames((current) => {
+        const next = { ...current }
+        for (const [id, name] of entries) {
+          next[id] = name
+        }
+        return next
+      })
+    }
+
+    void loadDisplayNames()
+
+    return () => {
+      isMounted = false
+    }
+  }, [categoryFilteredPosts, displayNames])
 
   const availableCategories = useMemo(() => {
     const categories = new Set<string>()
@@ -302,11 +413,11 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
           ) : activeTab === "users" ? (
             <div>
               <h2 className="text-lg font-semibold mb-4">Comedians</h2>
-              {userSummaries.length === 0 ? (
+              {filteredUserSummaries.length === 0 ? (
                 <p className="text-gray-400 text-sm">No comedians match your filters yet.</p>
               ) : (
                 <div className="space-y-4">
-                  {userSummaries.map((summary) => (
+                  {filteredUserSummaries.map((summary) => (
                     <SearchUserRow
                       key={summary.userId}
                       userId={summary.userId}
@@ -316,6 +427,17 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
                       onToggleFollow={() => toggleFollow(summary.userId)}
                       isFollowing={isFollowing(summary.userId)}
                       disabled={followLoading}
+                      onOpenProfile={() =>
+                        setSelectedProfile({
+                          userId: summary.userId,
+                          sets: summary.sets,
+                          likes: summary.likes,
+                          views: summary.views,
+                          displayName: displayNames[summary.userId],
+                        })
+                      }
+                      onRequestAuth={onRequestAuth}
+                      displayNameHint={displayNames[summary.userId]}
                     />
                   ))}
                 </div>
@@ -351,6 +473,177 @@ export default function SearchPage({ onSelectPost }: SearchPageProps) {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      </div>
+      {selectedProfile && (
+        <MiniProfileSheet
+          userId={selectedProfile.userId}
+          sets={selectedProfile.sets}
+          likes={selectedProfile.likes}
+          views={selectedProfile.views}
+          posts={posts}
+          onClose={() => setSelectedProfile(null)}
+          onSelectPost={(postId) => {
+            onSelectPost(postId)
+            setSelectedProfile(null)
+          }}
+          isFollowing={isFollowing(selectedProfile.userId)}
+          onToggleFollow={() => toggleFollow(selectedProfile.userId)}
+          followDisabled={followLoading}
+          onRequestAuth={onRequestAuth}
+          displayNameHint={selectedProfile.displayName}
+        />
+      )}
+    </div>
+  )
+}
+
+interface MiniProfileSheetProps {
+  userId: string
+  sets: number
+  likes: number
+  views: number
+  posts: Post[]
+  onClose: () => void
+  onSelectPost: (postId: string) => void
+  isFollowing: boolean
+  onToggleFollow: () => void
+  followDisabled: boolean
+  onRequestAuth?: () => void
+  displayNameHint?: string
+}
+
+function MiniProfileSheet({
+  userId,
+  sets,
+  likes,
+  views,
+  posts,
+  onClose,
+  onSelectPost,
+  isFollowing,
+  onToggleFollow,
+  followDisabled,
+  onRequestAuth,
+  displayNameHint,
+}: MiniProfileSheetProps) {
+  const { user } = useAuth()
+  const fetchedName = useDisplayName(userId)
+  const preferredName = displayNameHint && displayNameHint.length > 0 ? displayNameHint : fetchedName ?? ""
+  const displayName = preferredName.trim().length > 0 ? preferredName : "Anonymous Comedian"
+  const handle = useMemo(
+    () => (preferredName.trim().length > 0 ? preferredName : userId).replace(/\s+/g, "").toLowerCase(),
+    [preferredName, userId],
+  )
+  const avatar = useMemo(() => buildAvatarPlaceholder(displayName || userId), [displayName, userId])
+  const canFollow = !!user && !user.isAnonymous && user.uid !== userId
+  const followLabel = canFollow ? (isFollowing ? "Following" : "Follow") : "Sign in"
+  const followClasses = canFollow
+    ? isFollowing
+      ? "bg-white/10 text-white"
+      : "bg-white text-black hover:bg-gray-200"
+    : "bg-white text-black"
+
+  const topPosts = useMemo(() => {
+    return posts
+      .filter((post) => post.userId === userId)
+      .sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
+      .slice(0, 3)
+  }, [posts, userId])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-4 pb-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-md rounded-3xl bg-gray-900 p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <Image src={avatar} alt={displayName} width={56} height={56} className="rounded-full border border-gray-700" />
+            <div>
+              <div className="text-lg font-semibold text-white">{displayName}</div>
+              <div className="text-sm text-gray-400">@{handle}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-gray-800 p-2 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-3 text-center text-sm text-gray-300">
+          <div>
+            <div className="text-xl font-semibold text-white">{sets}</div>
+            <div>Sets</div>
+          </div>
+          <div>
+            <div className="text-xl font-semibold text-white">{formatLargeNumber(views)}</div>
+            <div>Views</div>
+          </div>
+          <div>
+            <div className="text-xl font-semibold text-white">{formatLargeNumber(likes)}</div>
+            <div>Laughs</div>
+          </div>
+        </div>
+
+        <p className="mt-4 text-sm text-gray-400">
+          Bio coming soon. Follow now to find out when new sets drop or this comic goes on tour.
+        </p>
+
+        {user?.uid !== userId && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!canFollow) {
+                onRequestAuth?.()
+                return
+              }
+              onToggleFollow()
+            }}
+            disabled={followDisabled || (!canFollow && !onRequestAuth)}
+            className={`mt-4 w-full rounded-full py-2 text-sm font-semibold transition-colors ${followClasses} ${
+              followDisabled || (!canFollow && !onRequestAuth) ? "cursor-not-allowed opacity-60" : ""
+            }`}
+          >
+            {followLabel}
+          </button>
+        )}
+
+        <div className="mt-6">
+          <div className="mb-3 text-sm font-semibold text-gray-300">Top moments</div>
+          {topPosts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-700 p-4 text-center text-sm text-gray-500">
+              No clips yet — check back soon!
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {topPosts.map((post) => (
+                <button
+                  key={post.id}
+                  type="button"
+                  onClick={() => onSelectPost(post.id)}
+                  className="relative aspect-[3/4] overflow-hidden rounded-lg border border-gray-800 bg-gray-800"
+                >
+                  {post.thumbnailURL ? (
+                    <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
+                  ) : (
+                    <video src={post.videoURL} className="h-full w-full object-cover" muted loop playsInline />
+                  )}
+                  <div className="absolute bottom-1 left-1 right-1 rounded bg-black/60 px-1 text-[10px] font-medium text-white">
+                    {formatLargeNumber(post.viewCount ?? 0)} views
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </div>
