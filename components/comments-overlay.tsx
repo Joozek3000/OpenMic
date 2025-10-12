@@ -1,14 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { X, Trash2 } from "lucide-react"
+import { X, Trash2, MessageCircle } from "lucide-react"
 import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
 import { addComment, deleteComment, listenToComments } from "@/lib/data/posts"
 import type { CommentDoc } from "@/lib/types"
-import { buildAvatarPlaceholder, formatRelativeTimestamp } from "@/lib/utils"
+import { buildAvatarPlaceholder, formatRelativeTimestamp, getErrorMessage } from "@/lib/utils"
 import { useDisplayName } from "@/hooks/use-display-name"
+import { useToast } from "@/components/toast-provider"
+import { CommentItemSkeleton } from "@/components/skeletons"
 
 interface CommentsOverlayProps {
   postId: string
@@ -59,6 +61,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   const [error, setError] = useState<string | null>(null)
   const [posting, setPosting] = useState(false)
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
+  const { showToast } = useToast()
 
   useEffect(() => {
     const unsubscribe = listenToComments(
@@ -70,7 +73,9 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
       },
       (firestoreError) => {
         console.error("Failed to fetch comments", firestoreError)
-        setError("Unable to load comments right now.")
+        const message = getErrorMessage(firestoreError)
+        setError(message)
+        showToast("Unable to load comments. Check your connection.", "error")
         setLoading(false)
       },
     )
@@ -90,7 +95,9 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
       setNewComment("")
     } catch (submitError) {
       console.error("Failed to add comment", submitError)
-      setError("Could not add comment. Please try again.")
+      const message = getErrorMessage(submitError)
+      setError(message)
+      showToast(message, "error")
     } finally {
       setPosting(false)
     }
@@ -103,7 +110,9 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
       await deleteComment(postId, commentId)
     } catch (deleteError) {
       console.error("Failed to delete comment", deleteError)
-      setError("Could not delete comment. Please try again.")
+      const message = getErrorMessage(deleteError)
+      setError(message)
+      showToast(message, "error")
     } finally {
       setDeletingCommentId(null)
     }
@@ -121,19 +130,37 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {loading ? (
-            <div className="flex items-center justify-center h-full text-gray-400">Loading comments…</div>
-          ) : comments.length === 0 ? (
-            <div className="text-center text-gray-400 py-8">Be the first to leave a laugh.</div>
+            <div className="space-y-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <CommentItemSkeleton key={`comment-skeleton-${index}`} />
+              ))}
+            </div>
           ) : (
-            comments.map((comment) => (
-              <CommentItem
-                key={comment.id}
-                comment={comment}
-                canDelete={!disableActions && user?.uid === comment.userId}
-                onDelete={handleDelete}
-                deleting={deletingCommentId === comment.id}
-              />
-            ))
+            <div className="space-y-4">
+              {posting && <CommentItemSkeleton key="comment-posting" />}
+              {comments.length === 0 ? (
+                <div className="flex flex-col items-center text-center gap-3 py-12 px-4">
+                  <MessageCircle size={48} className="text-gray-600" />
+                  <div className="space-y-2">
+                    <h4 className="text-xl font-semibold text-white">No comments yet</h4>
+                    <p className="text-sm text-gray-400">
+                      Be the first to share your thoughts! Drop a comment and start the conversation.
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-500 italic">💬 Tip: Great comments get more engagement</p>
+                </div>
+              ) : (
+                comments.map((comment) => (
+                  <CommentItem
+                    key={comment.id}
+                    comment={comment}
+                    canDelete={!disableActions && user?.uid === comment.userId}
+                    onDelete={handleDelete}
+                    deleting={deletingCommentId === comment.id}
+                  />
+                ))
+              )}
+            </div>
           )}
 
           {error && <div className="text-center text-sm text-red-300">{error}</div>}

@@ -7,18 +7,21 @@ import Image from "next/image"
 import { useAuth } from "@/components/auth-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import { updateDisplayName, DisplayNameUnavailableError } from "@/lib/data/users"
-import { buildAvatarPlaceholder, formatLargeNumber } from "@/lib/utils"
+import { buildAvatarPlaceholder, formatLargeNumber, getErrorMessage } from "@/lib/utils"
+import { GridItemSkeleton } from "@/components/skeletons"
+import { useToast } from "@/components/toast-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
 
 interface ProfilePageProps {
   onSelectPost: (postId: string) => void
   onRequestAuth: () => void
+  onNavigateToTab?: (tab: string) => void
 }
 
-export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePageProps) {
+export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToTab }: ProfilePageProps) {
   const { user, logout, loading: authLoading, error: authError } = useAuth()
-  const { posts } = usePostsContext()
+  const { posts, loading: postsLoading } = usePostsContext()
   const [activeTab, setActiveTab] = useState("videos")
   const savedDisplayName = useDisplayName(user?.uid)
   const [displayName, setDisplayName] = useState("")
@@ -26,6 +29,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
   const [feedback, setFeedback] = useState<string | null>(null)
   const [feedbackVariant, setFeedbackVariant] = useState<"success" | "error">("success")
   const [showSettings, setShowSettings] = useState(false)
+  const { showToast } = useToast()
 
   useEffect(() => {
     if (savedDisplayName) {
@@ -57,6 +61,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
   }, [posts, user])
 
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || user?.uid ?? "guest"), [displayName, user?.uid])
+  const isAnonymous = !user || user.isAnonymous
 
   const handleSave = async () => {
     if (!user || !displayName.trim()) return
@@ -66,14 +71,18 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
       await updateDisplayName(user.uid, displayName.trim())
       setFeedback("Stage name saved")
       setFeedbackVariant("success")
+      showToast("Stage name saved", "success")
     } catch (error) {
       console.error("Failed to update display name", error)
       if (error instanceof DisplayNameUnavailableError) {
         setFeedback("That stage name is already taken.")
         setFeedbackVariant("error")
+        showToast("That stage name is already taken.", "error")
       } else {
-        setFeedback("Could not save name. Try again.")
+        const message = getErrorMessage(error)
+        setFeedback(message)
         setFeedbackVariant("error")
+        showToast(message, "error")
       }
     } finally {
       setIsSaving(false)
@@ -102,10 +111,14 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
         document.body.removeChild(textarea)
       }
       setFeedback("Profile link copied")
+      setFeedbackVariant("success")
+      showToast("Profile link copied", "success")
       setTimeout(() => setFeedback(null), 2000)
     } catch (error) {
       console.error("Failed to copy profile link", error)
       setFeedback("Unable to copy link")
+      setFeedbackVariant("error")
+      showToast("Unable to copy link", "error")
     }
   }
 
@@ -192,9 +205,14 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
                 <UserPlus size={20} />
               </button>
             </div>
-            {!user?.isAnonymous && (
+            {!isAnonymous && (
               <button
-                onClick={() => logout()}
+                onClick={() => {
+                  void logout().catch((error) => {
+                    console.error("Failed to log out", error)
+                    showToast(getErrorMessage(error), "error")
+                  })
+                }}
                 disabled={authLoading}
                 className="w-full rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -234,8 +252,33 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
 
         <div className="p-4">
           {activeTab === "videos" ? (
-            userPosts.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">You have not uploaded any sets yet.</div>
+            postsLoading && userPosts.length === 0 ? (
+              <div className="grid grid-cols-3 gap-1">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <GridItemSkeleton key={`profile-upload-skeleton-${index}`} />
+                ))}
+              </div>
+            ) : userPosts.length === 0 ? (
+              <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
+                <Grid size={48} className="text-gray-600" />
+                <div className="space-y-2">
+                  <h3 className="text-xl font-semibold">{isAnonymous ? "No sets yet" : "Share your first set"}</h3>
+                  <p className="text-sm text-gray-400">
+                    {isAnonymous
+                      ? "Sign in to start uploading your stand-up clips and build your comedy portfolio."
+                      : "Upload your best stand-up moments and start building your audience."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    isAnonymous ? onRequestAuth() : onNavigateToTab?.("upload")
+                  }
+                  className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+                >
+                  {isAnonymous ? "Sign In to Upload" : "Upload a Set"}
+                </button>
+              </div>
             ) : (
               <div className="grid grid-cols-3 gap-1">
                 {userPosts.map((post) => (
@@ -258,34 +301,50 @@ export default function ProfilePage({ onSelectPost, onRequestAuth }: ProfilePage
                 ))}
               </div>
             )
+          ) : postsLoading && likedPosts.length === 0 ? (
+            <div className="grid grid-cols-3 gap-1">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <GridItemSkeleton key={`profile-liked-skeleton-${index}`} />
+              ))}
+            </div>
+          ) : likedPosts.length === 0 ? (
+            <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
+              <Heart size={48} className="text-gray-600" />
+              <div className="space-y-2">
+                <h3 className="text-xl font-semibold">No liked sets yet</h3>
+                <p className="text-sm text-gray-400">
+                  Start exploring the feed and tap the heart on sets that make you laugh. They'll appear here.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateToTab?.("home")}
+                className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+              >
+                Discover Sets
+              </button>
+            </div>
           ) : (
-            likedPosts.length === 0 ? (
-              <div className="text-center py-12">
-                <Heart size={48} className="mx-auto mb-4 text-gray-600" />
-                <p className="text-gray-400">Liked sets will appear here soon.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-1">
-                {likedPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer"
-                    onClick={() => onSelectPost(post.id)}
-                  >
-                    {post.thumbnailURL ? (
-                      <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
-                    ) : (
-                      <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
-                    )}
-                    <div className="absolute bottom-2 left-2">
-                      <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                        {formatLargeNumber(post.viewCount ?? 0)} views
-                      </span>
-                    </div>
+            <div className="grid grid-cols-3 gap-1">
+              {likedPosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer"
+                  onClick={() => onSelectPost(post.id)}
+                >
+                  {post.thumbnailURL ? (
+                    <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
+                  ) : (
+                    <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
+                  )}
+                  <div className="absolute bottom-2 left-2">
+                    <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                      {formatLargeNumber(post.viewCount ?? 0)} views
+                    </span>
                   </div>
-                ))}
-              </div>
-            )
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

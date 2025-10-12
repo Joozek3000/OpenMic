@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 import { useAuth } from "@/components/auth-provider"
 import { getUserProfile, toggleFollow as toggleFollowApi } from "@/lib/data/users"
+import { withRetry } from "@/lib/utils"
 
 interface FollowContextValue {
   following: Set<string>
@@ -26,7 +27,11 @@ export function FollowProvider({ children }: { children: ReactNode }) {
     }
 
     setLoading(true)
-    getUserProfile(user.uid)
+    withRetry(() => getUserProfile(user.uid), {
+      maxAttempts: 3,
+      delayMs: 600,
+      backoff: true,
+    })
       .then((profile) => {
         if (profile?.following) {
           setFollowing(new Set(profile.following))
@@ -56,10 +61,14 @@ export function FollowProvider({ children }: { children: ReactNode }) {
       })
 
       try {
-        await toggleFollowApi(user.uid, targetId, !currentlyFollowing)
+        await withRetry(
+          async () => {
+            await toggleFollowApi(user.uid, targetId, !currentlyFollowing)
+          },
+          { maxAttempts: 2, delayMs: 400, backoff: false },
+        )
       } catch (error) {
         console.error("Failed to toggle follow", error)
-        // Revert local state if the write fails.
         setFollowing((prev) => {
           const next = new Set(prev)
           if (currentlyFollowing) {

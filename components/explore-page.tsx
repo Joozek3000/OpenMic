@@ -8,6 +8,7 @@ import { usePostsContext } from "@/components/posts-provider"
 import { useFilters } from "@/components/filters-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { formatLargeNumber, getCategoryLabel } from "@/lib/utils"
+import { GridItemSkeleton } from "@/components/skeletons"
 
 interface ExplorePageProps {
   onSelectPost: (postId: string) => void
@@ -101,9 +102,28 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
 
         <div className="px-4 pb-10">
           {loading ? (
-            <div className="text-center text-gray-400 py-12">Loading clips…</div>
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: 12 }).map((_, index) => (
+                <GridItemSkeleton key={`explore-skeleton-${index}`} />
+              ))}
+            </div>
           ) : curatedPosts.length === 0 ? (
-            <div className="text-center text-gray-400 py-12">No sets in this category yet.</div>
+            <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
+              <Compass size={48} className="text-gray-600" />
+              <div className="space-y-2">
+                <h3 className="text-xl font-semibold">No sets in this category</h3>
+                <p className="text-sm text-gray-400">
+                  This comedy style doesn't have any clips yet. Try exploring other categories or check back soon!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCategory("all")}
+                className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+              >
+                Browse All Comedy
+              </button>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               {curatedPosts.slice(0, visibleCount).map((post) => (

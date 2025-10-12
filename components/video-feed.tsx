@@ -9,14 +9,18 @@ import {
   useRef,
   useState,
 } from "react"
+import { Upload } from "lucide-react"
 
 import { useAuth } from "@/components/auth-provider"
 import { useFollow } from "@/components/follow-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import CommentsOverlay from "@/components/comments-overlay"
 import VideoCard from "@/components/video-card"
-import { deletePost, incrementViewCount, toggleLike } from "@/lib/data/posts"
+import { VideoCardSkeleton } from "@/components/skeletons"
+import { useToast } from "@/components/toast-provider"
+import { deletePost, fetchCommentCount, incrementViewCount, toggleLike } from "@/lib/data/posts"
 import type { Post } from "@/lib/types"
+import { getErrorMessage } from "@/lib/utils"
 
 interface LikeState {
   liked: boolean
@@ -28,15 +32,19 @@ export interface VideoFeedHandle {
   scrollToPost: (postId: string) => void
 }
 
-const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) => {
+interface VideoFeedProps {
+  onNavigateToUpload?: () => void
+}
+
+const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpload }, ref) => {
   const { posts, loading: postsLoading, error } = usePostsContext()
   const { user, loading: authLoading } = useAuth()
   const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
+  const { showToast } = useToast()
 
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [showComments, setShowComments] = useState(false)
   const [optimisticLikes, setOptimisticLikes] = useState<Record<string, LikeState>>({})
-  const [likeError, setLikeError] = useState<string | null>(null)
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null)
@@ -79,6 +87,62 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
     return () => clearTimeout(timeout)
   }, [copiedPostId])
 
+  useEffect(() => {
+    const nextCounts: Record<string, number> = {}
+    posts.forEach((post) => {
+      if (typeof post.commentCount === "number") {
+        nextCounts[post.id] = post.commentCount
+      }
+    })
+
+    setCommentCounts((current) => {
+      const sameKeys = Object.keys(nextCounts).length === Object.keys(current).length
+      if (sameKeys) {
+        const hasDiff = Object.entries(nextCounts).some(([key, value]) => current[key] !== value)
+        if (!hasDiff) {
+          return current
+        }
+      }
+      return nextCounts
+    })
+  }, [posts])
+
+  useEffect(() => {
+    const missing = posts.filter((post) => typeof post.commentCount !== "number")
+    if (missing.length === 0) return
+
+    let cancelled = false
+
+    const loadCounts = async () => {
+      const entries = await Promise.all(
+        missing.map(async (post) => {
+          const count = await fetchCommentCount(post.id)
+          return { id: post.id, count }
+        }),
+      )
+
+      if (cancelled) return
+
+      setCommentCounts((current) => {
+        const next = { ...current }
+        let changed = false
+        entries.forEach(({ id, count }) => {
+          if (next[id] !== count) {
+            next[id] = count
+            changed = true
+          }
+        })
+        return changed ? next : current
+      })
+    }
+
+    void loadCounts()
+
+    return () => {
+      cancelled = true
+    }
+  }, [posts])
+
   const handleCommentsOpen = (postId: string) => {
     setSelectedPostId(postId)
     setShowComments(true)
@@ -116,7 +180,6 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
             pending: false,
           },
         }))
-        setLikeError(null)
       } catch (toggleError) {
         console.error("Failed to toggle like", toggleError)
         setOptimisticLikes((current) => ({
@@ -127,17 +190,18 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
             pending: false,
           },
         }))
-        setLikeError("Could not update like. Please try again.")
+        showToast(getErrorMessage(toggleError), "error")
       }
     },
-    [authLoading, optimisticLikes, user],
+    [authLoading, optimisticLikes, showToast, user],
   )
 
-  const handleShare = useCallback(async (post: Post) => {
-    try {
-      if (navigator?.clipboard?.writeText) {
+  const handleShare = useCallback(
+    async (post: Post) => {
+      try {
+        if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(post.videoURL)
-      } else {
+        } else {
         const textarea = document.createElement("textarea")
         textarea.value = post.videoURL
         textarea.style.position = "fixed"
@@ -148,12 +212,14 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
         document.body.removeChild(textarea)
       }
       setCopiedPostId(post.id)
-    } catch (shareError) {
-      console.error("Failed to copy share link", shareError)
-      setCopiedPostId(null)
-      alert("Unable to copy link. Please copy it manually.")
-    }
-  }, [])
+      } catch (shareError) {
+        console.error("Failed to copy share link", shareError)
+        setCopiedPostId(null)
+        showToast("Unable to copy link. Please copy it manually.", "error")
+      }
+    },
+    [showToast],
+  )
 
   const handleDelete = useCallback(
     async (post: Post) => {
@@ -164,14 +230,15 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
       setDeletingPostId(post.id)
       try {
         await deletePost({ id: post.id, fileId: post.fileId, thumbnailFileId: post.thumbnailFileId })
+        showToast("Set deleted successfully", "success")
       } catch (deleteError) {
         console.error("Failed to delete post", deleteError)
-        alert("Failed to delete post. Please try again.")
+        showToast(getErrorMessage(deleteError), "error")
       } finally {
         setDeletingPostId(null)
       }
     },
-    [user],
+    [showToast, user],
   )
 
   const handleCommentCountChange = useCallback((postId: string, count: number) => {
@@ -189,27 +256,34 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
   const derivedPosts = useMemo(() => posts, [posts])
   const disableActions = authLoading || !user
 
+  const showSkeletons = postsLoading && derivedPosts.length === 0
+
   return (
     <div className="relative h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide">
-      {postsLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white" />
-        </div>
-      )}
-
       {error && !postsLoading && (
         <div className="px-4 py-3 bg-red-600/20 text-red-200 text-sm text-center">{error}</div>
       )}
 
-      {likeError && (
-        <div className="px-4 py-2 bg-amber-500/20 text-amber-200 text-sm text-center">{likeError}</div>
-      )}
-
-      {derivedPosts.length === 0 && !postsLoading ? (
-        <div className="flex h-full items-center justify-center text-center px-6">
-          <div>
-            <h2 className="text-2xl font-semibold mb-2">No sets yet</h2>
-            <p className="text-gray-400">Be the first to upload a stand-up clip and kick off the laughs.</p>
+      {showSkeletons ? (
+        Array.from({ length: 3 }).map((_, index) => <VideoCardSkeleton key={`video-skeleton-${index}`} />)
+      ) : derivedPosts.length === 0 && !postsLoading ? (
+        <div className="flex h-full items-center justify-center px-6">
+          <div className="flex flex-col items-center text-center gap-4 max-w-sm">
+            <Upload size={72} className="text-gray-600" />
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold">No sets yet</h2>
+              <p className="text-gray-400 text-sm">
+                Be the first comedian to upload a stand-up clip and get the laughs rolling.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToUpload?.()}
+              className="inline-flex items-center gap-2 bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+            >
+              <Upload size={20} />
+              Upload Your First Set
+            </button>
           </div>
         </div>
       ) : (
@@ -225,7 +299,7 @@ const VideoFeed = forwardRef<VideoFeedHandle, Record<string, never>>((_, ref) =>
               key={post.id}
               post={post}
               likeState={likeState}
-              commentCount={commentCounts[post.id] ?? 0}
+              commentCount={commentCounts[post.id] ?? post.commentCount ?? 0}
               onToggleLike={() => handleToggleLike(post)}
               onCommentsClick={() => handleCommentsOpen(post.id)}
               onShare={() => handleShare(post)}

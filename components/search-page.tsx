@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, TrendingUp, Hash, Play } from "lucide-react"
+import { Search, TrendingUp, Hash, Play, Users, Clapperboard } from "lucide-react"
 import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
@@ -13,6 +13,7 @@ import { buildAvatarPlaceholder, formatLargeNumber, getCategoryLabel } from "@/l
 import type { Post } from "@/lib/types"
 import { useDisplayName } from "@/hooks/use-display-name"
 import { getDisplayName } from "@/lib/data/users"
+import { GridItemSkeleton, UserRowSkeleton } from "@/components/skeletons"
 
 interface SearchPageProps {
   onSelectPost: (postId: string) => void
@@ -341,7 +342,37 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
 
         <div className="px-4 pb-10">
           {loading ? (
-            <div className="text-center text-gray-400 py-12">Loading sets…</div>
+            activeTab === "trending" ? (
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <GridItemSkeleton key={`trending-skeleton-${index}`} />
+                ))}
+              </div>
+            ) : activeTab === "users" ? (
+              <div className="space-y-4">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <UserRowSkeleton key={`user-skeleton-${index}`} />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div
+                    key={`tag-skeleton-${index}`}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-gray-800 animate-pulse" />
+                      <div className="space-y-2">
+                        <div className="h-3 w-28 rounded-full bg-gray-800/80 animate-pulse" />
+                        <div className="h-3 w-36 rounded-full bg-gray-800/60 animate-pulse" />
+                      </div>
+                    </div>
+                    <div className="h-6 w-12 rounded-full bg-gray-800/70 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            )
           ) : activeTab === "trending" ? (
             <div>
               <div className="flex items-center gap-2 mb-4">
@@ -366,7 +397,36 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                 </div>
               </div>
               {sortedPosts.length === 0 ? (
-                <p className="text-gray-400 text-sm">No sets match your search yet.</p>
+                <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
+                  <Search size={48} className="text-gray-600" />
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-semibold">No matching sets</h3>
+                    <p className="text-sm text-gray-400">
+                      Try adjusting your search or category filters to discover more comedy.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-3">
+                    {normalizedQuery.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors"
+                      >
+                        Clear Search
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategory("all")
+                        setSortOrder("trending")
+                      }}
+                      className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors"
+                    >
+                      Reset Filters
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {sortedPosts.slice(0, 12).map((post) => (
@@ -414,7 +474,25 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
             <div>
               <h2 className="text-lg font-semibold mb-4">Comedians</h2>
               {filteredUserSummaries.length === 0 ? (
-                <p className="text-gray-400 text-sm">No comedians match your filters yet.</p>
+                <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
+                  <Users size={48} className="text-gray-600" />
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-semibold">No comedians found</h3>
+                    <p className="text-sm text-gray-400">
+                      No comics match your current filters. Try broadening your search or exploring different categories.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategory("all")
+                      setSortOrder("trending")
+                    }}
+                    className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {filteredUserSummaries.map((summary) => (
@@ -447,7 +525,15 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
             <div>
               <h2 className="text-lg font-semibold mb-4">Comedy Tags</h2>
               {hashtagSummaries.length === 0 ? (
-                <p className="text-gray-400 text-sm">No categories match your filters.</p>
+                <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
+                  <Hash size={48} className="text-gray-600" />
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-semibold">No tags available</h3>
+                    <p className="text-sm text-gray-400">
+                      Categories will appear here once comedians start uploading sets.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {hashtagSummaries.map(({ category: categoryItem, count, likes, views }) => (
@@ -623,7 +709,10 @@ function MiniProfileSheet({
           <div className="mb-3 text-sm font-semibold text-gray-300">Top moments</div>
           {topPosts.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-700 p-4 text-center text-sm text-gray-500">
-              No clips yet — check back soon!
+              <div className="flex flex-col items-center gap-2">
+                <Clapperboard size={32} className="text-gray-600" />
+                <p>No clips yet — check back soon or follow to get notified when they upload!</p>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-2">

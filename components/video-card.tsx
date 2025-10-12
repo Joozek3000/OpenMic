@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Heart, MessageCircle, Share, Music, Trash2, Tag, CheckCircle, Volume2, VolumeX, Play } from "lucide-react"
 import Image from "next/image"
 
-import type { Post } from "@/lib/types"
-import { buildAvatarPlaceholder, formatLargeNumber, formatRelativeTimestamp, getCategoryLabel } from "@/lib/utils"
+import { useToast } from "@/components/toast-provider"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
+import type { Post } from "@/lib/types"
+import { buildAvatarPlaceholder, formatLargeNumber, formatRelativeTimestamp, getCategoryLabel } from "@/lib/utils"
 
 interface LikeState {
   liked: boolean
@@ -55,11 +56,16 @@ export default function VideoCard({
   const { preferences } = usePlaybackSettings()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
+  const { showToast } = useToast()
   const [videoError, setVideoError] = useState(false)
   const [isMuted, setIsMuted] = useState(preferences.startMuted)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPortrait, setIsPortrait] = useState(false)
   const hasTrackedViewRef = useRef(false)
+
+  const isAbortError = (error: unknown) => {
+    return error instanceof DOMException && error.name === "AbortError"
+  }
 
   // Build derived values up front so the JSX stays tidy.
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
@@ -96,14 +102,27 @@ export default function VideoCard({
               setIsPlaying(true)
             })
             .catch((error) => {
+              if (isAbortError(error)) {
+                return
+              }
               if (!isMuted) {
                 // Browser blocked autoplay with sound, fall back to muted playback.
                 console.warn("Autoplay with sound blocked; reverting to muted", error)
                 videoElement.muted = true
                 setIsMuted(true)
-                void videoElement.play().then(() => setIsPlaying(true)).catch((err) => console.error("Video playback failed", err))
+                void videoElement
+                  .play()
+                  .then(() => setIsPlaying(true))
+                  .catch((err) => {
+                    if (isAbortError(err)) {
+                      return
+                    }
+                    console.error("Video playback failed", err)
+                    showToast("Video autoplay blocked. Tap to play.", "info")
+                  })
               } else {
                 console.error("Video playback failed", error)
+                showToast("Video autoplay blocked. Tap to play.", "info")
               }
             })
         } else if (!videoElement.paused) {
@@ -119,7 +138,7 @@ export default function VideoCard({
     return () => {
       observer.disconnect()
     }
-  }, [isMuted, onViewed, preferences.autoplay])
+  }, [isMuted, onViewed, preferences.autoplay, showToast])
 
   useEffect(() => {
     const videoElement = videoRef.current
@@ -148,15 +167,22 @@ export default function VideoCard({
     // Attempt to unmute and resume playback; browsers may reject until user interacts.
     if (isMuted) {
       videoElement.muted = false
-      void videoElement.play()
+      void videoElement
+        .play()
         .then(() => {
           setIsMuted(false)
           setIsPlaying(true)
         })
         .catch((error) => {
+          if (isAbortError(error)) {
+            videoElement.muted = true
+            setIsMuted(true)
+            return
+          }
           console.warn("Unable to unmute automatically", error)
           videoElement.muted = true
           setIsMuted(true)
+          showToast("Autoplay with sound is blocked. Tap to play.", "info")
         })
     } else {
       videoElement.muted = true
@@ -173,12 +199,17 @@ export default function VideoCard({
         const videoElement = videoRef.current
         if (!videoElement) return
         if (videoElement.paused) {
-          void videoElement.play()
+          void videoElement
+            .play()
             .then(() => {
               setIsPlaying(true)
             })
             .catch((error) => {
+              if (isAbortError(error)) {
+                return
+              }
               console.error("Failed to resume playback", error)
+              showToast("Unable to play this video. Please try again.", "error")
             })
         } else {
           videoElement.pause()
@@ -205,7 +236,10 @@ export default function VideoCard({
               playsInline
               muted={isMuted}
               controls={false}
-              onError={() => setVideoError(true)}
+              onError={() => {
+                setVideoError(true)
+                showToast("Unable to play this video. Please try another.", "error")
+              }}
               onPlay={() => {
                 setIsPlaying(true)
                 if (!hasTrackedViewRef.current) {

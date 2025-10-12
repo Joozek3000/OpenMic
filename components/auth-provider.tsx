@@ -14,6 +14,8 @@ import {
 
 import { auth } from "@/lib/firebase"
 import { ensureUserProfile } from "@/lib/data/users"
+import { showToastExternal } from "@/components/toast-provider"
+import { getErrorMessage, isNetworkError, withRetry } from "@/lib/utils"
 
 interface AuthContextValue {
   user: User | null
@@ -42,11 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!firebaseUser) {
         try {
           setLoading(true)
-          await signInAnonymously(auth)
+          await withRetry(() => signInAnonymously(auth), { maxAttempts: 3, delayMs: 800, backoff: true })
         } catch (authError) {
           console.error("Anonymous sign-in failed", authError)
           if (isMounted) {
-            setError("Unable to sign in. Please try again later.")
+            const message = isNetworkError(authError)
+              ? "Unable to reach OpenMic. Check your connection and retry."
+              : "Unable to sign in. Please try again later."
+            setError(message)
+            showToastExternal(message, "error")
             setLoading(false)
           }
         }
@@ -57,9 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!isAnonymous) {
         try {
-          await ensureUserProfile(firebaseUser.uid)
+          await withRetry(() => ensureUserProfile(firebaseUser.uid), { maxAttempts: 3, delayMs: 600, backoff: true })
         } catch (profileError) {
           console.error("Failed to ensure user profile", profileError)
+          const message = isNetworkError(profileError)
+            ? "Connection interrupted while syncing your profile."
+            : getErrorMessage(profileError)
+          showToastExternal(message, "error")
+          setError(message)
         }
       }
 
@@ -85,7 +96,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setPendingCredential(credential)
     } catch (authError) {
       console.error("Failed to sign in", authError)
-      setError("Sign-in failed. Check your credentials and try again.")
+      const message = isNetworkError(authError)
+        ? "Network issue while signing in. Please try again."
+        : "Sign-in failed. Check your credentials and try again."
+      setError(message)
+      showToastExternal(message, "error")
       setLoading(false)
     }
   }, [])
@@ -107,7 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if ((linkError as { code?: string })?.code === "auth/credential-already-in-use") {
         setError("This email is already linked to another profile.")
       } else {
-        setError("Could not create account. Please try again.")
+        const message = isNetworkError(linkError)
+          ? "Network issue while creating account. Please try again."
+          : "Could not create account. Please try again."
+        setError(message)
+        showToastExternal(message, "error")
       }
       setLoading(false)
     }
@@ -136,7 +155,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInAnonymously(auth)
     } catch (logoutError) {
       console.error("Failed to log out", logoutError)
-      setError("Could not log out. Please try again.")
+      const message = isNetworkError(logoutError)
+        ? "Network issue while signing out. Please try again."
+        : "Could not log out. Please try again."
+      setError(message)
+      showToastExternal(message, "error")
     } finally {
       setLoading(false)
     }

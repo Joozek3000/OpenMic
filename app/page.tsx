@@ -37,7 +37,7 @@ export default function Home() {
   const renderContent = () => {
     switch (activeTab) {
       case "home":
-        return <VideoFeed ref={feedRef} />
+        return <VideoFeed ref={feedRef} onNavigateToUpload={() => setActiveTab("upload")} />
       case "search":
         return <SearchPage onSelectPost={handleSelectPost} onRequestAuth={() => setAuthModalOpen(true)} />
       case "upload":
@@ -45,9 +45,15 @@ export default function Home() {
       case "explore":
         return <ExplorePage onSelectPost={handleSelectPost} />
       case "profile":
-        return <ProfilePage onSelectPost={handleSelectPost} onRequestAuth={() => setAuthModalOpen(true)} />
+        return (
+          <ProfilePage
+            onSelectPost={handleSelectPost}
+            onRequestAuth={() => setAuthModalOpen(true)}
+            onNavigateToTab={setActiveTab}
+          />
+        )
       default:
-        return <VideoFeed ref={feedRef} />
+        return <VideoFeed ref={feedRef} onNavigateToUpload={() => setActiveTab("upload")} />
     }
   }
 

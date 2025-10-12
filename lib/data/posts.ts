@@ -8,12 +8,13 @@ import {
   doc,
   getDocs,
   increment,
+  getCountFromServer,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
-  type FirestoreError,
+  type FirestoreError as FirebaseFirestoreError,
   type QueryDocumentSnapshot,
   type DocumentData,
 } from "firebase/firestore"
@@ -21,6 +22,8 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage
 
 import { db, storage } from "@/lib/firebase"
 import type { CommentDoc, CreateCommentInput, CreatePostInput, Post } from "@/lib/types"
+import { FirestoreError, NetworkError, StorageError } from "@/lib/types"
+import { getErrorMessage, isNetworkError } from "@/lib/utils"
 
 const postsCollection = collection(db, "posts")
 
@@ -39,136 +42,370 @@ function mapDocToPost(docSnap: QueryDocumentSnapshot<DocumentData>): Post {
     thumbnailURL: data.thumbnailURL ?? undefined,
     thumbnailFileId: data.thumbnailFileId ?? undefined,
     viewCount: data.viewCount ?? 0,
+    commentCount: data.commentCount ?? 0,
   }
 }
 
 export function listenToPosts(
   onUpdate: (posts: Post[]) => void,
-  onError?: (error: FirestoreError) => void,
+  onError?: (error: FirebaseFirestoreError) => void,
 ) {
   // Subscribe to Firestore updates ordered by newest first.
   const postsQuery = query(postsCollection, orderBy("timestamp", "desc"))
   return onSnapshot(
     postsQuery,
     (snapshot) => {
-      const posts = snapshot.docs.map((docSnap) => mapDocToPost(docSnap))
-      onUpdate(posts)
+      try {
+        const posts = snapshot.docs.map((docSnap) => mapDocToPost(docSnap))
+        onUpdate(posts)
+      } catch (error) {
+        console.error("Failed to process posts snapshot", error)
+        if (onError) {
+          const derived = new FirestoreError("Unable to process posts feed.", {
+            code: "app/posts-snapshot",
+            retryable: false,
+            originalError: error,
+          })
+          onError({
+            code: derived.code,
+            message: derived.message,
+            name: "FirestoreError",
+          } as FirebaseFirestoreError)
+        }
+      }
     },
-    onError,
+    (firestoreError) => {
+      console.error("Failed to listen to posts", firestoreError)
+      if (!onError) return
+
+      const retryable = isNetworkError(firestoreError)
+      const message = retryable
+        ? "Connection lost. Attempting to reconnect to posts feed."
+        : getErrorMessage(firestoreError)
+
+      onError({
+        ...firestoreError,
+        message,
+      })
+    },
   )
 }
 
 export async function createPost(input: CreatePostInput) {
   // Firestore will replace the timestamp server-side so the feed stays in sync globally.
-  await addDoc(postsCollection, {
-    title: input.title,
-    description: input.description,
-    videoURL: input.videoURL,
-    category: input.category,
-    userId: input.userId,
-    timestamp: serverTimestamp(),
+  try {
+    await addDoc(postsCollection, {
+      title: input.title,
+      description: input.description,
+      videoURL: input.videoURL,
+      category: input.category,
+      userId: input.userId,
+      timestamp: serverTimestamp(),
     likes: [],
     fileId: input.fileId,
     thumbnailURL: input.thumbnailURL ?? null,
     thumbnailFileId: input.thumbnailFileId ?? null,
     viewCount: 0,
+    commentCount: 0,
   })
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Network issue while publishing your set. Please try again."
+      : getErrorMessage(error)
+
+    throw new StorageError(message, {
+      code: "app/create-post",
+      retryable,
+      originalError: error,
+    })
+  }
 }
 
 export async function toggleLike(postId: string, userId: string, shouldLike: boolean) {
   const postRef = doc(db, "posts", postId)
-  await updateDoc(postRef, {
-    likes: shouldLike ? arrayUnion(userId) : arrayRemove(userId),
-  })
+  try {
+    await updateDoc(postRef, {
+      likes: shouldLike ? arrayUnion(userId) : arrayRemove(userId),
+    })
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Connection issue while updating laughs."
+      : "Unable to update likes for this set."
+
+    throw new FirestoreError(message, {
+      code: "app/toggle-like",
+      retryable,
+      originalError: error,
+    })
+  }
 }
 
 export function listenToComments(
   postId: string,
   onUpdate: (comments: CommentDoc[]) => void,
-  onError?: (error: FirestoreError) => void,
+  onError?: (error: FirebaseFirestoreError) => void,
 ) {
   const commentsRef = collection(db, "posts", postId, "comments")
   const commentsQuery = query(commentsRef, orderBy("timestamp", "asc"))
   return onSnapshot(
     commentsQuery,
     (snapshot) => {
-      const comments = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data()
-        return {
-          id: docSnap.id,
-          text: data.text,
-          userId: data.userId,
-          timestamp: data.timestamp,
-        } satisfies CommentDoc
-      })
-      onUpdate(comments)
+      try {
+        const comments = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data()
+          return {
+            id: docSnap.id,
+            text: data.text,
+            userId: data.userId,
+            timestamp: data.timestamp,
+          } satisfies CommentDoc
+        })
+        onUpdate(comments)
+      } catch (error) {
+        console.error("Failed to process comments snapshot", error)
+        if (onError) {
+          const derived = new FirestoreError("Unable to process comments stream.", {
+            code: "app/comments-snapshot",
+            retryable: false,
+            originalError: error,
+          })
+          onError({
+            code: derived.code,
+            message: derived.message,
+            name: "FirestoreError",
+          } as FirebaseFirestoreError)
+        }
+      }
     },
-    onError,
+    (firestoreError) => {
+      console.error("Failed to listen to comments", firestoreError)
+      if (!onError) return
+
+      const retryable = isNetworkError(firestoreError)
+      const message = retryable
+        ? "Connection lost. Attempting to reconnect to comments."
+        : getErrorMessage(firestoreError)
+
+      onError({
+        ...firestoreError,
+        message,
+      })
+    },
   )
 }
 
 export async function addComment({ postId, text, userId }: CreateCommentInput) {
   const commentsRef = collection(db, "posts", postId, "comments")
-  await addDoc(commentsRef, {
-    text,
-    userId,
-    timestamp: serverTimestamp(),
-  })
+  try {
+    await addDoc(commentsRef, {
+      text,
+      userId,
+      timestamp: serverTimestamp(),
+    })
+    const postRef = doc(db, "posts", postId)
+    await updateDoc(postRef, {
+      commentCount: increment(1),
+    }).catch((countError) => {
+      console.warn("Failed to increment comment count", countError)
+    })
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Network issue while posting your comment."
+      : "Unable to add comment right now."
+
+    throw new FirestoreError(message, {
+      code: "app/add-comment",
+      retryable,
+      originalError: error,
+    })
+  }
 }
 
 export async function deleteComment(postId: string, commentId: string) {
   const commentRef = doc(db, "posts", postId, "comments", commentId)
-  await deleteDoc(commentRef)
+  try {
+    await deleteDoc(commentRef)
+    const postRef = doc(db, "posts", postId)
+    await updateDoc(postRef, {
+      commentCount: increment(-1),
+    }).catch((countError) => {
+      console.warn("Failed to decrement comment count", countError)
+    })
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Network issue while removing your comment."
+      : "Unable to delete comment right now."
+
+    throw new FirestoreError(message, {
+      code: "app/delete-comment",
+      retryable,
+      originalError: error,
+    })
+  }
 }
 
 export async function deletePost(post: Pick<Post, "id" | "fileId"> & { thumbnailFileId?: string | null }) {
   const postRef = doc(postsCollection, post.id)
+  try {
+    // Remove nested comments before deleting the post document to avoid orphaned refs.
+    const commentsRef = collection(db, "posts", post.id, "comments")
+    const commentsSnapshot = await getDocs(commentsRef)
+    await Promise.all(commentsSnapshot.docs.map((commentDoc) => deleteDoc(commentDoc.ref)))
 
-  // Remove nested comments before deleting the post document to avoid orphaned refs.
-  const commentsRef = collection(db, "posts", post.id, "comments")
-  const commentsSnapshot = await getDocs(commentsRef)
-  await Promise.all(commentsSnapshot.docs.map((commentDoc) => deleteDoc(commentDoc.ref)))
+    await deleteDoc(postRef)
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Network issue while deleting the set. Please try again."
+      : "Unable to delete this set right now."
 
-  await deleteDoc(postRef)
+    throw new FirestoreError(message, {
+      code: "app/delete-post",
+      retryable,
+      originalError: error,
+    })
+  }
+
+  const storageFailures: string[] = []
+  const storageErrors: unknown[] = []
 
   if (post.fileId) {
-    const storageRef = ref(storage, post.fileId)
-    await deleteObject(storageRef)
+    try {
+      const storageRef = ref(storage, post.fileId)
+      await deleteObject(storageRef)
+    } catch (error) {
+      console.error("Failed to delete post video asset", error)
+      storageFailures.push("video")
+      storageErrors.push(error)
+    }
   }
 
   if (post.thumbnailFileId) {
-    const thumbRef = ref(storage, post.thumbnailFileId)
-    await deleteObject(thumbRef)
+    try {
+      const thumbRef = ref(storage, post.thumbnailFileId)
+      await deleteObject(thumbRef)
+    } catch (error) {
+      console.error("Failed to delete post thumbnail asset", error)
+      storageFailures.push("thumbnail")
+      storageErrors.push(error)
+    }
+  }
+
+  if (storageFailures.length > 0) {
+    const message =
+      storageFailures.length === 1
+        ? `Set removed, but the ${storageFailures[0]} file could not be deleted.`
+        : "Set removed, but some associated files could not be deleted."
+
+    const retryable = storageErrors.some((error) => isNetworkError(error))
+    const lastError = storageErrors[storageErrors.length - 1]
+
+    throw new StorageError(message, {
+      code: "app/delete-post-assets",
+      retryable,
+      originalError: lastError,
+    })
   }
 }
 
 export async function uploadVideoFile(file: File) {
   // Store raw clips under `videos/` with a random suffix to avoid collisions.
-  const extension = file.name.split(".").pop() ?? "mp4"
-  const uniqueId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)
-  const fileId = `videos/${uniqueId}.${extension}`
-  const storageRef = ref(storage, fileId)
-  await uploadBytes(storageRef, file)
-  const videoURL = await getDownloadURL(storageRef)
-  return { videoURL, fileId }
+  try {
+    const extension = file.name.split(".").pop() ?? "mp4"
+    const uniqueId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2)
+    const fileId = `videos/${uniqueId}.${extension}`
+    const storageRef = ref(storage, fileId)
+    await uploadBytes(storageRef, file)
+    const videoURL = await getDownloadURL(storageRef)
+    return { videoURL, fileId }
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Network issue while uploading video. Please check your connection."
+      : `Unable to upload video file${file.name ? ` "${file.name}"` : ""}.`
+
+    if (retryable) {
+      throw new NetworkError(message, {
+        originalError: error,
+      })
+    }
+
+    throw new StorageError(message, {
+      code: "app/upload-video",
+      retryable,
+      originalError: error,
+    })
+  }
 }
 
 export async function uploadThumbnailFile(blob: Blob) {
   // Mirrors the video uploader but stores static posters under a different prefix.
-  const uniqueId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)
-  const fileId = `thumbnails/${uniqueId}.jpg`
-  const storageRef = ref(storage, fileId)
-  await uploadBytes(storageRef, blob, {
-    contentType: blob.type || "image/jpeg",
-  })
-  const thumbnailURL = await getDownloadURL(storageRef)
-  return { thumbnailURL, fileId }
+  try {
+    const uniqueId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2)
+    const fileId = `thumbnails/${uniqueId}.jpg`
+    const storageRef = ref(storage, fileId)
+    await uploadBytes(storageRef, blob, {
+      contentType: blob.type || "image/jpeg",
+    })
+    const thumbnailURL = await getDownloadURL(storageRef)
+    return { thumbnailURL, fileId }
+  } catch (error) {
+    const retryable = isNetworkError(error)
+    const message = retryable
+      ? "Network issue while uploading the cover image."
+      : "Unable to upload cover image."
+
+    if (retryable) {
+      throw new NetworkError(message, {
+        originalError: error,
+      })
+    }
+
+    throw new StorageError(message, {
+      code: "app/upload-thumbnail",
+      retryable,
+      originalError: error,
+    })
+  }
 }
 
 export async function incrementViewCount(postId: string) {
   // Use Firestore's atomic increment to avoid race conditions between clients.
   const postRef = doc(db, "posts", postId)
-  await updateDoc(postRef, {
-    viewCount: increment(1),
-  })
+  try {
+    await updateDoc(postRef, {
+      viewCount: increment(1),
+    })
+  } catch (error) {
+    // Increment failures are non-blocking; log for debugging but don't disrupt playback.
+    console.warn("Failed to increment view count", error)
+  }
+}
+
+export async function fetchCommentCount(postId: string) {
+  try {
+    const commentsRef = collection(db, "posts", postId, "comments")
+    const snapshot = await getCountFromServer(commentsRef)
+    const count = snapshot.data().count
+    const postRef = doc(db, "posts", postId)
+    await updateDoc(postRef, {
+      commentCount: count,
+    }).catch((error) => {
+      console.warn("Failed to cache comment count", error)
+    })
+    return count
+  } catch (error) {
+    console.warn("Failed to fetch comment count", error)
+    return 0
+  }
 }

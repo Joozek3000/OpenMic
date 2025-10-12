@@ -1,9 +1,17 @@
 "use client"
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 
 import { listenToPosts } from "@/lib/data/posts"
 import type { Post } from "@/lib/types"
+import { getErrorMessage, isNetworkError } from "@/lib/utils"
 
 interface PostsContextValue {
   posts: Post[]
@@ -18,6 +26,25 @@ export function PostsProvider({ children }: { children: ReactNode }) {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [connectionMessage, setConnectionMessage] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setConnectionMessage("Connection restored")
+      setTimeout(() => setConnectionMessage(undefined), 3000)
+    }
+    const handleOffline = () => {
+      setConnectionMessage("You are offline. Changes may not sync.")
+    }
+
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
 
   useEffect(() => {
     // Firestore gives us realtime updates; unsubscribe when the component unmounts.
@@ -29,7 +56,10 @@ export function PostsProvider({ children }: { children: ReactNode }) {
       },
       (firestoreError) => {
         console.error("Failed to listen to posts", firestoreError)
-        setError(firestoreError.message)
+        const message = isNetworkError(firestoreError)
+          ? "Connection lost. Posts will refresh when you’re back online."
+          : getErrorMessage(firestoreError)
+        setError(message)
         setLoading(false)
       },
     )
@@ -39,7 +69,10 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo<PostsContextValue>(() => ({ posts, loading, error }), [posts, loading, error])
+  const value = useMemo<PostsContextValue>(
+    () => ({ posts, loading, error: error ?? connectionMessage }),
+    [posts, loading, error, connectionMessage],
+  )
 
   return <PostsContext.Provider value={value}>{children}</PostsContext.Provider>
 }

@@ -7,11 +7,14 @@ import { Upload, Play, X, ImageIcon } from "lucide-react"
 import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
+import { useToast } from "@/components/toast-provider"
 import { DEFAULT_CATEGORY_VALUE, STANDUP_CATEGORIES } from "@/lib/constants"
 import { createPost, uploadThumbnailFile, uploadVideoFile } from "@/lib/data/posts"
+import { getErrorMessage, withRetry } from "@/lib/utils"
 
 export default function UploadPage() {
   const { user, loading: authLoading } = useAuth()
+  const { showToast } = useToast()
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [category, setCategory] = useState(DEFAULT_CATEGORY_VALUE)
@@ -22,6 +25,7 @@ export default function UploadPage() {
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null)
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null)
   const [isGeneratingThumb, setIsGeneratingThumb] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     // Clean up video preview URLs when the component unmounts or the file changes.
@@ -95,6 +99,7 @@ export default function UploadPage() {
       }
     } catch (error) {
       console.error("Failed to capture thumbnail", error)
+      showToast("Unable to generate a cover image. Your clip will still upload.", "info")
       setThumbnailBlob(null)
       setThumbnailPreview((prev) => {
         if (prev) URL.revokeObjectURL(prev)
@@ -138,7 +143,7 @@ export default function UploadPage() {
 
   const handleSubmit = async () => {
     if (!user) {
-      alert("Please wait for sign-in before uploading.")
+      showToast("Please wait for sign-in before uploading.", "error")
       return
     }
 
@@ -148,15 +153,32 @@ export default function UploadPage() {
     }
 
     setIsUploading(true)
+    setRetryCount(0)
     setFeedback(null)
 
+    let attempts = 0
     try {
-      // Upload the video first, then optionally upload the derived poster image.
-      const { videoURL, fileId } = await uploadVideoFile(videoFile)
+      const maxAttempts = 3
+
+      const { videoURL, fileId } = await withRetry(
+        async () => {
+          attempts += 1
+          setRetryCount(attempts)
+          if (attempts > 1) {
+            setFeedback(`Uploading… (attempt ${attempts}/${maxAttempts})`)
+          }
+          return uploadVideoFile(videoFile)
+        },
+        { maxAttempts, delayMs: 1000, backoff: true },
+      )
+
       let thumbnailFileId: string | undefined
       let thumbnailURL: string | undefined
       if (thumbnailBlob) {
-        const { thumbnailURL: uploadedThumb, fileId: thumbId } = await uploadThumbnailFile(thumbnailBlob)
+        const { thumbnailURL: uploadedThumb, fileId: thumbId } = await withRetry(
+          () => uploadThumbnailFile(thumbnailBlob),
+          { maxAttempts, delayMs: 1000, backoff: true },
+        )
         thumbnailFileId = thumbId
         thumbnailURL = uploadedThumb
       }
@@ -171,14 +193,19 @@ export default function UploadPage() {
         thumbnailFileId,
       })
 
-      alert("Stand-up clip uploaded!")
+      showToast("Stand-up clip uploaded!", "success")
       resetForm()
     } catch (error) {
       console.error("Failed to upload post", error)
-      alert("Upload failed. Please try again.")
-      setFeedback("Upload failed. Please try again.")
+      const message = getErrorMessage(error)
+      setFeedback(message)
+      const attemptsUsed = attempts > 0 ? attempts : 1
+      setRetryCount(attemptsUsed)
+      showToast(`${message}${attemptsUsed > 1 ? ` (after ${attemptsUsed} attempts)` : ""}`, "error")
     } finally {
       setIsUploading(false)
+      setRetryCount(0)
+      setFeedback((current) => (current && current.startsWith("Uploading…") ? null : current))
     }
   }
 
