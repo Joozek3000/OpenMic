@@ -1,17 +1,18 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Settings, Grid, Heart, UserPlus, Save, X } from "lucide-react"
 import Image from "next/image"
 
 import { useAuth } from "@/components/auth-provider"
 import { usePostsContext } from "@/components/posts-provider"
 import { updateDisplayName, DisplayNameUnavailableError } from "@/lib/data/users"
-import { buildAvatarPlaceholder, formatLargeNumber, getErrorMessage } from "@/lib/utils"
+import { buildAvatarPlaceholder, formatLargeNumber, getErrorMessage, sanitizeDisplayName } from "@/lib/utils"
 import { GridItemSkeleton } from "@/components/skeletons"
 import { useToast } from "@/components/toast-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
+import { useFocusTrap } from "@/hooks/use-focus-trap"
 
 interface ProfilePageProps {
   onSelectPost: (postId: string) => void
@@ -30,6 +31,9 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
   const [feedbackVariant, setFeedbackVariant] = useState<"success" | "error">("success")
   const [showSettings, setShowSettings] = useState(false)
   const { showToast } = useToast()
+  const stageNameHintId = "stage-name-hint"
+  const stageNameCountId = "stage-name-count"
+  const stageNameMaxLength = 40
 
   useEffect(() => {
     if (savedDisplayName) {
@@ -130,15 +134,18 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
           <div className="flex items-center gap-2">
             {user?.isAnonymous && (
               <button
+                type="button"
                 onClick={onRequestAuth}
-                className="rounded-full border border-gray-700 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-200 hover:bg-gray-800"
+                className="inline-flex items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-gray-200 focus-visible-ring"
+                aria-label="Sign in to save your profile"
               >
                 Sign in
               </button>
             )}
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2 hover:bg-gray-800 rounded-full transition-colors"
+              className="p-2 hover:bg-gray-800 rounded-full transition-colors focus-visible-ring"
+              aria-label="Open playback settings"
             >
               <Settings size={24} />
             </button>
@@ -178,20 +185,40 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
 
           <div className="mb-4 space-y-3">
             <div>
-              <label className="text-sm text-gray-400">Stage Name</label>
+              <label className="text-sm text-gray-400" htmlFor="stage-name-input">
+                Stage Name (public)
+              </label>
               <input
+                id="stage-name-input"
                 type="text"
                 value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                maxLength={40}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+                onChange={(event) => {
+                  const sanitized = sanitizeDisplayName(event.target.value)
+                  setDisplayName(sanitized)
+                }}
+                maxLength={stageNameMaxLength}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20 focus-visible-ring"
+                aria-label="Stage name"
+                aria-describedby={`${stageNameHintId} ${stageNameCountId}`}
               />
+              <div className="mt-1 flex items-baseline justify-between text-xs text-gray-500">
+                <p id={stageNameHintId}>3-40 characters • Letters, numbers, spaces, hyphens, underscores</p>
+                <p
+                  id={stageNameCountId}
+                  aria-live="polite"
+                  role="status"
+                  aria-atomic="true"
+                >
+                  {displayName.length}/{stageNameMaxLength}
+                </p>
+              </div>
             </div>
             <div className="flex gap-3">
               <button
                 onClick={handleSave}
                 disabled={isSaving || !displayName.trim()}
-                className="flex-1 py-2 px-4 rounded-lg font-semibold transition-colors bg-white text-black disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-2 px-4 rounded-lg font-semibold transition-colors bg-white text-black disabled:opacity-50 disabled:cursor-not-allowed focus-visible-ring"
+                aria-label={isSaving ? "Saving stage name" : "Save stage name"}
               >
                 <div className="flex items-center justify-center gap-2">
                   <Save size={18} />
@@ -200,7 +227,8 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               </button>
               <button
                 onClick={handleCopyProfile}
-                className="px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
+                className="px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors focus-visible-ring"
+                aria-label="Copy profile link"
               >
                 <UserPlus size={20} />
               </button>
@@ -214,7 +242,8 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
                   })
                 }}
                 disabled={authLoading}
-                className="w-full rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60 focus-visible-ring"
+                aria-label={authLoading ? "Signing out" : "Sign out"}
               >
                 {authLoading ? "Signing out…" : "Sign out"}
               </button>
@@ -227,13 +256,16 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
           </div>
         </div>
 
-        <div className="border-b border-gray-800">
+        <div className="border-b border-gray-800" role="tablist" aria-label="Profile tabs">
           <div className="flex">
             <button
               onClick={() => setActiveTab("videos")}
               className={`flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${
                 activeTab === "videos" ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
-              }`}
+              } focus-visible-ring`}
+              role="tab"
+              aria-selected={activeTab === "videos"}
+              aria-controls="profile-content"
             >
               <Grid size={18} />
               <span className="font-medium">Sets</span>
@@ -242,7 +274,10 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               onClick={() => setActiveTab("liked")}
               className={`flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${
                 activeTab === "liked" ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
-              }`}
+              } focus-visible-ring`}
+              role="tab"
+              aria-selected={activeTab === "liked"}
+              aria-controls="profile-content"
             >
               <Heart size={18} />
               <span className="font-medium">Liked</span>
@@ -250,7 +285,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
           </div>
         </div>
 
-        <div className="p-4">
+        <div className="p-4" role="tabpanel" id="profile-content" aria-live="polite">
           {activeTab === "videos" ? (
             postsLoading && userPosts.length === 0 ? (
               <div className="grid grid-cols-3 gap-1">
@@ -313,7 +348,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               <div className="space-y-2">
                 <h3 className="text-xl font-semibold">No liked sets yet</h3>
                 <p className="text-sm text-gray-400">
-                  Start exploring the feed and tap the heart on sets that make you laugh. They'll appear here.
+                  Start exploring the feed and tap the heart on sets that make you laugh. They&#39;ll appear here.
                 </p>
               </div>
               <button
@@ -360,19 +395,49 @@ interface SettingsSheetProps {
 
 function SettingsSheet({ onClose }: SettingsSheetProps) {
   const { preferences, setPreference, reset } = usePlaybackSettings()
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const descriptionId = "settings-description"
+
+  useFocusTrap(sheetRef, true)
+
+  useEffect(() => {
+    const firstFocusable = sheetRef.current?.querySelector<HTMLElement>(
+      'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )
+    firstFocusable?.focus()
+  }, [])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      onClose()
+    }
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-gray-900 p-6 shadow-lg">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onKeyDown={handleKeyDown}>
+      <div
+        ref={sheetRef}
+        className="w-full max-w-md rounded-2xl bg-gray-900 p-6 shadow-lg focus-visible-ring"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        aria-describedby={descriptionId}
+        tabIndex={-1}
+      >
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">Playback preferences</h2>
-            <p className="text-sm text-gray-400">Tune how videos behave across the app.</p>
+            <h2 id="settings-title" className="text-xl font-semibold text-white">
+              Playback preferences
+            </h2>
+            <p id={descriptionId} className="text-sm text-gray-400">
+              Tune how videos behave across the app.
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+            className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white focus-visible-ring"
             type="button"
+            aria-label="Close settings"
           >
             <X size={20} />
           </button>
@@ -402,15 +467,17 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
         <div className="mt-6 flex items-center justify-between text-sm text-gray-400">
           <button
             onClick={reset}
-            className="underline underline-offset-4 hover:text-white"
+            className="underline underline-offset-4 hover:text-white focus-visible-ring"
             type="button"
+            aria-label="Reset to default settings"
           >
             Reset defaults
           </button>
           <button
             onClick={onClose}
-            className="rounded-lg bg-white px-4 py-2 font-semibold text-black hover:bg-gray-200"
+            className="rounded-lg bg-white px-4 py-2 font-semibold text-black hover:bg-gray-200 focus-visible-ring"
             type="button"
+            aria-label="Close settings"
           >
             Done
           </button>
@@ -432,7 +499,10 @@ function SettingToggle({ label, description, active, onToggle }: SettingTogglePr
     <button
       type="button"
       onClick={onToggle}
-      className="flex w-full items-center justify-between rounded-xl border border-gray-800 bg-gray-900 p-4 text-left transition-colors hover:border-gray-700 hover:bg-gray-800"
+      className="flex w-full items-center justify-between rounded-xl border border-gray-800 bg-gray-900 p-4 text-left transition-colors hover:border-gray-700 hover:bg-gray-800 focus-visible-ring"
+      role="switch"
+      aria-checked={active}
+      aria-label={label}
     >
       <div className="pr-4">
         <p className="text-sm font-semibold text-white">{label}</p>

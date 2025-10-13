@@ -21,6 +21,7 @@ import { useToast } from "@/components/toast-provider"
 import { deletePost, fetchCommentCount, incrementViewCount, toggleLike } from "@/lib/data/posts"
 import type { Post } from "@/lib/types"
 import { getErrorMessage } from "@/lib/utils"
+import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation"
 
 interface LikeState {
   liked: boolean
@@ -49,6 +50,10 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null)
   const viewedPostsRef = useRef<Set<string>>(new Set())
+  const [activeIndex, setActiveIndex] = useState<number>(0)
+  const [prefetchIndex, setPrefetchIndex] = useState<number>(-1)
+  const prefetchVideoRef = useRef<HTMLVideoElement | null>(null)
+  const [announcement, setAnnouncement] = useState("")
 
   useImperativeHandle(ref, () => ({
     scrollToPost: (postId: string) => {
@@ -86,6 +91,30 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
     const timeout = setTimeout(() => setCopiedPostId(null), 2000)
     return () => clearTimeout(timeout)
   }, [copiedPostId])
+
+  useEffect(() => {
+    if (posts.length === 0) return
+    const nextIndex = activeIndex + 1
+    if (nextIndex < posts.length) {
+      setPrefetchIndex(nextIndex)
+    }
+  }, [activeIndex, posts.length])
+
+  useEffect(() => {
+    const videoElement = prefetchVideoRef.current
+    if (!videoElement) {
+      return
+    }
+
+    if (prefetchIndex < 0 || prefetchIndex >= posts.length) {
+      videoElement.removeAttribute("src")
+      videoElement.load()
+      return
+    }
+
+    videoElement.src = posts[prefetchIndex].videoURL
+    videoElement.load()
+  }, [prefetchIndex, posts])
 
   useEffect(() => {
     const nextCounts: Record<string, number> = {}
@@ -253,13 +282,48 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
     [toggleFollow, user],
   )
 
-  const derivedPosts = useMemo(() => posts, [posts])
-  const disableActions = authLoading || !user
+const derivedPosts = useMemo(() => posts, [posts])
+const disableActions = authLoading || !user
 
-  const showSkeletons = postsLoading && derivedPosts.length === 0
+const showSkeletons = postsLoading && derivedPosts.length === 0
+
+  useKeyboardNavigation({
+    axis: "vertical",
+    enabled: !showComments,
+    onNext: () => {
+      const nextIndex = Math.min(activeIndex + 1, derivedPosts.length - 1)
+      if (nextIndex !== activeIndex) {
+        const nextPost = derivedPosts[nextIndex]
+        const node = document.getElementById(`post-${nextPost.id}`)
+        node?.scrollIntoView({ behavior: "smooth", block: "start" })
+        setActiveIndex(nextIndex)
+      }
+    },
+    onPrevious: () => {
+      const previousIndex = Math.max(activeIndex - 1, 0)
+      if (previousIndex !== activeIndex) {
+        const previousPost = derivedPosts[previousIndex]
+        const node = document.getElementById(`post-${previousPost.id}`)
+        node?.scrollIntoView({ behavior: "smooth", block: "start" })
+        setActiveIndex(previousIndex)
+      }
+    },
+  })
+
+  useEffect(() => {
+    if (derivedPosts.length === 0) {
+      return
+    }
+    const current = derivedPosts[activeIndex]
+    setAnnouncement(`Now viewing ${current.title}`)
+  }, [activeIndex, derivedPosts])
 
   return (
-    <div className="relative h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide">
+    <div
+      className="relative h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide"
+      role="feed"
+      aria-label="Video feed"
+    >
       {error && !postsLoading && (
         <div className="px-4 py-3 bg-red-600/20 text-red-200 text-sm text-center">{error}</div>
       )}
@@ -315,6 +379,10 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
                   console.error("Failed to increment view count", incrementError)
                   viewedPostsRef.current.delete(post.id)
                 })
+                const index = derivedPosts.findIndex((item) => item.id === post.id)
+                if (index >= 0) {
+                  setActiveIndex(index)
+                }
               }}
               elementId={`post-${post.id}`}
               isFollowing={!!user && isFollowing(post.userId)}
@@ -333,6 +401,14 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
           onCommentCountChange={handleCommentCountChange}
         />
       )}
+      <video
+        ref={prefetchVideoRef}
+        preload="metadata"
+        style={{ display: "none" }}
+      />
+      <div className="sr-only" aria-live="polite">
+        {announcement}
+      </div>
     </div>
   )
 })

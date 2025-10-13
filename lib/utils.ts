@@ -43,6 +43,197 @@ export function buildAvatarPlaceholder(identifier: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
+const htmlEscapeMap: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#039;",
+}
+
+export function sanitizeText(input: string) {
+  if (!input) return ""
+  const escaped = input.replace(/[&<>"']/g, (char) => htmlEscapeMap[char])
+  return escaped
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim()
+}
+
+export function sanitizeDisplayName(input: string) {
+  return input
+    .replace(/[^\p{L}\p{N}_\- ]+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+export function validateDisplayName(name: string) {
+  const trimmed = name.trim()
+  if (trimmed.length < 3 || trimmed.length > 40) {
+    return { valid: false, error: "Stage name must be between 3 and 40 characters." }
+  }
+
+  if (!/^[\p{L}\p{N}_\- ]+$/u.test(trimmed)) {
+    return {
+      valid: false,
+      error: "Stage name can only include letters, numbers, spaces, hyphens, and underscores.",
+    }
+  }
+
+  if (/^[_\- ]|[_\- ]$/.test(trimmed)) {
+    return { valid: false, error: "Stage name cannot start or end with special characters." }
+  }
+
+  return { valid: true }
+}
+
+export function validateTextLength(text: string, min: number, max: number, fieldName: string) {
+  const length = text.trim().length
+  if (length < min) {
+    return { valid: false, error: `${fieldName} must be at least ${min} character${min === 1 ? "" : "s"}.` }
+  }
+
+  if (length > max) {
+    return { valid: false, error: `${fieldName} cannot exceed ${max} characters.` }
+  }
+
+  return { valid: true }
+}
+
+export function sanitizeAndValidate(
+  input: string,
+  options: { minLength?: number; maxLength?: number; fieldName: string },
+) {
+  const sanitized = sanitizeText(input)
+  const { minLength = 0, maxLength = Infinity, fieldName } = options
+  const validation = validateTextLength(sanitized, minLength, maxLength, fieldName)
+  if (!validation.valid) {
+    return { sanitized, valid: false, error: validation.error }
+  }
+  return { sanitized, valid: true }
+}
+
+const ALLOWED_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"])
+const MAX_VIDEO_BYTES = 209_715_200 // 200MB
+const DEFAULT_MAX_DURATION = 180 // seconds
+
+export function validateVideoFile(file: File) {
+  if (!ALLOWED_VIDEO_TYPES.has(file.type)) {
+    return { valid: false, error: "Unsupported format. Use MP4, MOV, or WebM." }
+  }
+
+  if (file.size > MAX_VIDEO_BYTES) {
+    return { valid: false, error: "Video must be under 200MB." }
+  }
+
+  return { valid: true }
+}
+
+export async function getVideoDuration(file: File) {
+  return new Promise<number>((resolve, reject) => {
+    const video = document.createElement("video")
+    video.preload = "metadata"
+    video.src = URL.createObjectURL(file)
+
+    const cleanup = () => {
+      URL.revokeObjectURL(video.src)
+      video.remove()
+    }
+
+    video.onloadedmetadata = () => {
+      const duration = video.duration
+      cleanup()
+      if (!Number.isFinite(duration) || duration <= 0) {
+        reject(new Error("Unable to read video duration."))
+        return
+      }
+      resolve(duration)
+    }
+
+    video.onerror = () => {
+      cleanup()
+      reject(new Error("Unable to load video metadata."))
+    }
+  })
+}
+
+export function validateVideoDuration(duration: number, maxSeconds: number = DEFAULT_MAX_DURATION) {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return { valid: false, error: "Invalid video duration." }
+  }
+
+  if (duration > maxSeconds) {
+    return {
+      valid: false,
+      error: `Video must be under ${Math.floor(maxSeconds / 60)} minutes. Current length: ${formatDuration(duration)}.`,
+    }
+  }
+
+  return { valid: true }
+}
+
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = Math.round(totalSeconds % 60)
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
+export function resizeCanvas(source: HTMLCanvasElement, maxWidth: number, maxHeight: number) {
+  const { width, height } = source
+  let targetWidth = width
+  let targetHeight = height
+
+  if (width > maxWidth || height > maxHeight) {
+    const widthRatio = maxWidth / width
+    const heightRatio = maxHeight / height
+    const scale = Math.min(widthRatio, heightRatio)
+    targetWidth = Math.floor(width * scale)
+    targetHeight = Math.floor(height * scale)
+  }
+
+  const canvas = document.createElement("canvas")
+  canvas.width = targetWidth
+  canvas.height = targetHeight
+
+  const context = canvas.getContext("2d")
+  if (!context) {
+    return source
+  }
+
+  context.drawImage(source, 0, 0, targetWidth, targetHeight)
+  return canvas
+}
+
+export async function optimizeThumbnail(
+  video: HTMLVideoElement,
+  maxWidth: number,
+  maxHeight: number,
+  quality: number,
+) {
+  const canvas = document.createElement("canvas")
+  canvas.width = video.videoWidth || 720
+  canvas.height = video.videoHeight || 1280
+  const context = canvas.getContext("2d")
+  if (!context) {
+    return null
+  }
+
+  context.drawImage(video, 0, 0, canvas.width, canvas.height)
+  const resized = resizeCanvas(canvas, maxWidth, maxHeight)
+
+  return new Promise<Blob | null>((resolve) => {
+    resized.toBlob(
+      (blob) => {
+        resolve(blob)
+      },
+      "image/jpeg",
+      quality,
+    )
+  })
+}
+
 export function getErrorMessage(error: unknown) {
   if (!error) return "Something went wrong. Please try again."
   if (error instanceof AppError) return error.message

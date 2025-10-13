@@ -62,6 +62,10 @@ export default function VideoCard({
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPortrait, setIsPortrait] = useState(false)
   const hasTrackedViewRef = useRef(false)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const observerOptionsRef = useRef<IntersectionObserverInit>({ threshold: 0.6 })
+  const isMutedRef = useRef(isMuted)
+  const autoplayRef = useRef(preferences.autoplay)
 
   const isAbortError = (error: unknown) => {
     return error instanceof DOMException && error.name === "AbortError"
@@ -80,14 +84,23 @@ export default function VideoCard({
   useEffect(() => {
     const videoElement = videoRef.current
     if (!videoElement) return
+    isMutedRef.current = isMuted
+  }, [isMuted])
 
-    // Drive autoplay/pause based on intersection and trigger view tracking exactly once.
+  useEffect(() => {
+    autoplayRef.current = preferences.autoplay
+  }, [preferences.autoplay])
+
+  useEffect(() => {
+    const videoElement = videoRef.current
+    if (!videoElement) return
+
     const handleVisible = (entries: IntersectionObserverEntry[]) => {
       entries.forEach((entry) => {
         if (entry.target !== videoElement) return
 
         if (entry.isIntersecting) {
-          if (!preferences.autoplay) {
+          if (!autoplayRef.current) {
             return
           }
 
@@ -95,7 +108,7 @@ export default function VideoCard({
             hasTrackedViewRef.current = true
             onViewed?.()
           }
-          videoElement.muted = isMuted
+          videoElement.muted = isMutedRef.current
           void videoElement
             .play()
             .then(() => {
@@ -105,7 +118,7 @@ export default function VideoCard({
               if (isAbortError(error)) {
                 return
               }
-              if (!isMuted) {
+              if (!isMutedRef.current) {
                 // Browser blocked autoplay with sound, fall back to muted playback.
                 console.warn("Autoplay with sound blocked; reverting to muted", error)
                 videoElement.muted = true
@@ -132,13 +145,15 @@ export default function VideoCard({
       })
     }
 
-    const observer = new IntersectionObserver(handleVisible, { threshold: 0.6 })
+    const observer = new IntersectionObserver(handleVisible, observerOptionsRef.current)
     observer.observe(videoElement)
+    observerRef.current = observer
 
     return () => {
       observer.disconnect()
+      observerRef.current = null
     }
-  }, [isMuted, onViewed, preferences.autoplay, showToast])
+  }, [onViewed, showToast])
 
   useEffect(() => {
     const videoElement = videoRef.current
@@ -194,7 +209,8 @@ export default function VideoCard({
     <div
       id={elementId}
       className="relative h-screen w-full snap-start bg-black"
-      // Global click toggles playback while action buttons stop propagation.
+      role="article"
+      aria-label={`Video by ${displayName}: ${post.title}`}
       onClick={() => {
         const videoElement = videoRef.current
         if (!videoElement) return
@@ -272,7 +288,9 @@ export default function VideoCard({
             event.stopPropagation()
             handleToggleMute()
           }}
-          className="absolute top-16 right-4 z-10 p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+          className="absolute top-16 right-4 z-10 p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors focus-visible-ring"
+          aria-label={isMuted ? "Unmute video" : "Mute video"}
+          aria-pressed={!isMuted}
         >
           {isMuted ? <VolumeX size={22} className="text-white" /> : <Volume2 size={22} className="text-white" />}
         </button>
@@ -304,7 +322,9 @@ export default function VideoCard({
                 disabled={disableActions || followDisabled}
                 className={`px-3 py-1 rounded-full text-sm font-semibold transition-colors ${
                   isFollowing ? "bg-white/10 text-white" : "bg-white text-black hover:bg-gray-200"
-                } ${disableActions || followDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                } ${disableActions || followDisabled ? "opacity-60 cursor-not-allowed" : ""} focus-visible-ring`}
+                aria-label={isFollowing ? `Unfollow ${displayName}` : `Follow ${displayName}`}
+                aria-pressed={isFollowing}
               >
                 {isFollowing ? "Following" : "Follow"}
               </button>
@@ -315,11 +335,11 @@ export default function VideoCard({
           <p className="text-white/90 text-sm mb-3 leading-relaxed line-clamp-3">{post.description}</p>
 
           <div className="flex items-center gap-3 text-white/80 text-sm">
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1" aria-hidden="true">
               <Tag size={14} />
               {categoryLabel}
             </span>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1" aria-hidden="true">
               <Music size={14} />
               Tight Five
             </span>
@@ -336,7 +356,13 @@ export default function VideoCard({
               disabled={disableActions || likeState.pending}
               className={`p-3 rounded-full transition-all duration-200 ${
                 likeState.liked ? "bg-red-500" : "bg-black/30 hover:bg-black/50"
-              } ${disableActions || likeState.pending ? "opacity-60 cursor-not-allowed" : ""}`}
+              } ${disableActions || likeState.pending ? "opacity-60 cursor-not-allowed" : ""} focus-visible-ring`}
+              aria-label={
+                likeState.liked
+                  ? `Unlike. ${likeState.count} likes`
+                  : `Like. ${likeState.count} likes`
+              }
+              aria-pressed={likeState.liked}
             >
               <Heart size={24} className={`text-white ${likeState.liked ? "fill-current" : ""}`} />
             </button>
@@ -349,7 +375,8 @@ export default function VideoCard({
                 event.stopPropagation()
                 onCommentsClick()
               }}
-              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200"
+              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200 focus-visible-ring"
+              aria-label={`View ${commentCount} comments`}
             >
               <MessageCircle size={24} className="text-white" />
             </button>
@@ -362,7 +389,8 @@ export default function VideoCard({
                 event.stopPropagation()
                 onShare()
               }}
-              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200"
+              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200 focus-visible-ring"
+              aria-label={showShareSuccess ? "Link copied" : "Share video"}
             >
               <Share size={24} className="text-white" />
             </button>
@@ -376,7 +404,8 @@ export default function VideoCard({
                 onDelete()
               }}
               disabled={isDeleting || disableActions}
-              className="p-3 rounded-full bg-black/30 hover:bg-red-600/60 transition-all duration-200 text-white disabled:opacity-60"
+              className="p-3 rounded-full bg-black/30 hover:bg-red-600/60 transition-all duration-200 text-white disabled:opacity-60 focus-visible-ring"
+              aria-label="Delete this video"
             >
               <Trash2 size={24} />
             </button>

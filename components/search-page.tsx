@@ -14,6 +14,7 @@ import type { Post } from "@/lib/types"
 import { useDisplayName } from "@/hooks/use-display-name"
 import { getDisplayName } from "@/lib/data/users"
 import { GridItemSkeleton, UserRowSkeleton } from "@/components/skeletons"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
 
 interface SearchPageProps {
   onSelectPost: (postId: string) => void
@@ -62,7 +63,8 @@ function SearchUserRow({
       <button
         type="button"
         onClick={onOpenProfile}
-        className="flex items-center gap-3 text-left transition-transform hover:scale-[1.01]"
+        className="flex items-center gap-3 text-left transition-transform hover:scale-[1.01] focus-visible-ring"
+        aria-label={`View profile of ${name}`}
       >
         <Image src={avatar} alt={name} width={40} height={40} className="rounded-full" />
         <div>
@@ -84,7 +86,15 @@ function SearchUserRow({
           disabled={disabled || (!canFollow && !onRequestAuth)}
           className={`px-4 py-1 rounded-full text-sm font-semibold transition-colors ${buttonClasses} ${
             disabled || (!canFollow && !onRequestAuth) ? "opacity-60 cursor-not-allowed" : ""
-          }`}
+          } focus-visible-ring`}
+          aria-label={
+            canFollow
+              ? isFollowing
+                ? `Unfollow ${name}`
+                : `Follow ${name}`
+              : "Sign in to follow"
+          }
+          aria-pressed={canFollow ? isFollowing : undefined}
         >
           {buttonLabel}
         </button>
@@ -98,6 +108,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   const { category, setCategory, sortOrder, setSortOrder } = useFilters()
   const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
   const [searchQuery, setSearchQuery] = useState("")
+  const debouncedQuery = useDebouncedValue(searchQuery, 300)
   const [activeTab, setActiveTab] = useState("trending")
   const [selectedProfile, setSelectedProfile] = useState<
     | null
@@ -116,7 +127,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   ]
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({})
 
-  const normalizedQuery = searchQuery.trim().toLowerCase()
+  const normalizedQuery = debouncedQuery.trim().toLowerCase()
 
   const categoryFilteredPosts = useMemo(
     () => (category === "all" ? posts : posts.filter((post) => post.category === category)),
@@ -270,21 +281,22 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   return (
     <div className="h-full bg-black text-white overflow-y-auto">
       <div className="max-w-md mx-auto">
-        <div className="p-4 pt-8">
+        <div className="p-4 pt-8" role="search" aria-label="Search comedians, sets, and categories">
           <h1 className="text-2xl font-bold mb-4">Discover</h1>
 
           <div className="relative mb-4">
             <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <input
-              type="text"
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search comedians, sets, categories..."
               className="w-full bg-gray-800 border border-gray-700 rounded-full pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/20 focus:border-transparent"
+              aria-label="Search comedians, sets, and categories"
             />
           </div>
 
-          <div className="-mx-4 mb-4">
+          <div className="-mx-4 mb-4" role="radiogroup" aria-label="Filter by category">
             <div className="flex flex-wrap gap-2 px-4 pb-3 pt-4">
               <button
                 onClick={() => setCategory("all")}
@@ -292,7 +304,9 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                   category === "all"
                     ? "bg-white text-black border-white shadow-sm"
                     : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
-                }`}
+                } focus-visible-ring`}
+                role="radio"
+                aria-checked={category === "all"}
               >
                 All Comedy
               </button>
@@ -304,7 +318,9 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                     category === categoryOption.value
                       ? "bg-white text-black border-white shadow-sm"
                       : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
-                  }`}
+                  } focus-visible-ring`}
+                  role="radio"
+                  aria-checked={category === categoryOption.value}
                 >
                   {categoryOption.label}
                 </button>
@@ -312,12 +328,15 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
             </div>
           </div>
 
-          <div className="flex gap-4 mb-6">
+          <div className="flex gap-4 mb-6" role="tablist" aria-label="Search sections">
             <button
               onClick={() => setActiveTab("trending")}
               className={`px-4 py-2 rounded-full font-medium transition-colors ${
                 activeTab === "trending" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
-              }`}
+              } focus-visible-ring`}
+              role="tab"
+              aria-selected={activeTab === "trending"}
+              aria-controls="search-content"
             >
               Trending
             </button>
@@ -325,7 +344,10 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               onClick={() => setActiveTab("users")}
               className={`px-4 py-2 rounded-full font-medium transition-colors ${
                 activeTab === "users" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
-              }`}
+              } focus-visible-ring`}
+              role="tab"
+              aria-selected={activeTab === "users"}
+              aria-controls="search-content"
             >
               Comics
             </button>
@@ -333,17 +355,20 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               onClick={() => setActiveTab("hashtags")}
               className={`px-4 py-2 rounded-full font-medium transition-colors ${
                 activeTab === "hashtags" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
-              }`}
+              } focus-visible-ring`}
+              role="tab"
+              aria-selected={activeTab === "hashtags"}
+              aria-controls="search-content"
             >
               Tags
             </button>
           </div>
         </div>
 
-        <div className="px-4 pb-10">
+        <div className="px-4 pb-10" role="tabpanel" id="search-content" aria-live="polite">
           {loading ? (
             activeTab === "trending" ? (
-              <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3" role="list">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <GridItemSkeleton key={`trending-skeleton-${index}`} />
                 ))}
@@ -379,7 +404,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                 <TrendingUp size={20} className="text-red-500" />
                 <h2 className="text-lg font-semibold">Trending Stand-Up</h2>
               </div>
-              <div className="-mx-4 mb-4">
+              <div className="-mx-4 mb-4" role="radiogroup" aria-label="Sort by">
                 <div className="flex flex-wrap gap-2 px-4 pb-2 pt-3">
                   {sortOptions.map((option) => (
                     <button
@@ -389,7 +414,9 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                         sortOrder === option.key
                           ? "bg-white text-black border-white shadow-sm"
                           : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
-                      }`}
+                      } focus-visible-ring`}
+                      role="radio"
+                      aria-checked={sortOrder === option.key}
                     >
                       {option.label}
                     </button>
@@ -410,7 +437,8 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                       <button
                         type="button"
                         onClick={() => setSearchQuery("")}
-                        className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors"
+                        className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors focus-visible-ring"
+                        aria-label="Clear search"
                       >
                         Clear Search
                       </button>
@@ -421,49 +449,62 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                         setCategory("all")
                         setSortOrder("trending")
                       }}
-                      className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors"
+                      className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors focus-visible-ring"
+                      aria-label="Reset filters"
                     >
                       Reset Filters
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3" role="list">
                   {sortedPosts.slice(0, 12).map((post) => (
-                    <div
-                      key={post.id}
-                      className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
-                      onClick={() => onSelectPost(post.id)}
-                    >
-                      {post.thumbnailURL ? (
-                        <Image
-                          src={post.thumbnailURL}
-                          alt={post.title}
-                          fill
-                          className="object-cover transition-transform group-hover:scale-105"
-                        />
-                      ) : (
-                        // Fallback to the actual video if no poster image is available yet.
-                        <video
-                          src={post.videoURL}
-                          className="h-full w-full object-contain bg-black transition-transform group-hover:scale-105"
-                          muted
-                          loop
-                          playsInline
-                        />
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="w-10 h-10 bg-black/40 rounded-full flex items-center justify-center">
-                          <Play size={18} className="text-white" />
+                    <div key={post.id} role="listitem">
+                      <div
+                        className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
+                        onClick={() => onSelectPost(post.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault()
+                            onSelectPost(post.id)
+                          }
+                        }}
+                        aria-label={`Watch ${post.title}`}
+                      >
+                        {post.thumbnailURL ? (
+                          <Image
+                            src={post.thumbnailURL}
+                            alt={post.title}
+                            fill
+                            className="object-cover transition-transform group-hover:scale-105"
+                            loading="lazy"
+                            priority={false}
+                          />
+                        ) : (
+                          // Fallback to the actual video if no poster image is available yet.
+                          <video
+                            src={post.videoURL}
+                            className="h-full w-full object-contain bg-black transition-transform group-hover:scale-105"
+                            muted
+                            loop
+                            playsInline
+                          />
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="w-10 h-10 bg-black/40 rounded-full flex items-center justify-center" aria-hidden="true">
+                            <Play size={18} className="text-white" />
+                          </div>
                         </div>
-                      </div>
-                      <div className="absolute bottom-2 left-2 right-2">
-                        <div className="flex items-center justify-between text-xs text-white/80">
-                          <span className="bg-black/50 px-2 py-1 rounded">{formatLargeNumber(post.viewCount ?? 0)} views</span>
-                          <span className="bg-white/10 px-2 py-1 rounded">{getCategoryLabel(post.category)}</span>
+                        <div className="absolute bottom-2 left-2 right-2">
+                          <div className="flex items-center justify-between text-xs text-white/80">
+                            <span className="bg-black/50 px-2 py-1 rounded">{formatLargeNumber(post.viewCount ?? 0)} views</span>
+                            <span className="bg-white/10 px-2 py-1 rounded">{getCategoryLabel(post.category)}</span>
+                          </div>
+                          <p className="text-xs text-white mt-1 line-clamp-2">{post.title}</p>
                         </div>
-                        <p className="text-xs text-white mt-1 line-clamp-2">{post.title}</p>
                       </div>
                     </div>
                   ))}
@@ -488,7 +529,8 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                       setCategory("all")
                       setSortOrder("trending")
                     }}
-                    className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors"
+                    className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors focus-visible-ring"
+                    aria-label="Reset filters"
                   >
                     Reset Filters
                   </button>
@@ -724,7 +766,14 @@ function MiniProfileSheet({
                   className="relative aspect-[3/4] overflow-hidden rounded-lg border border-gray-800 bg-gray-800"
                 >
                   {post.thumbnailURL ? (
-                    <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
+                    <Image
+                      src={post.thumbnailURL}
+                      alt={post.title}
+                      fill
+                      className="object-cover"
+                      loading="lazy"
+                      priority={false}
+                    />
                   ) : (
                     <video src={post.videoURL} className="h-full w-full object-cover" muted loop playsInline />
                   )}

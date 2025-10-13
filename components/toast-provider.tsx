@@ -106,9 +106,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
+    const timeouts = timeoutRefs.current
     return () => {
-      timeoutRefs.current.forEach((timeoutId) => clearTimeout(timeoutId))
-      timeoutRefs.current.clear()
+      timeouts.forEach((timeoutId) => clearTimeout(timeoutId))
+      timeouts.clear()
     }
   }, [])
 

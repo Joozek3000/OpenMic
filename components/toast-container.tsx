@@ -15,7 +15,12 @@ export default function ToastContainer({ toasts, onDismiss }: ToastContainerProp
   }
 
   return (
-    <div className="pointer-events-none fixed top-6 left-1/2 z-[100] w-full max-w-sm -translate-x-1/2 px-4">
+    <div
+      className="pointer-events-none fixed top-6 left-1/2 z-[100] w-full max-w-sm -translate-x-1/2 px-4"
+      role="region"
+      aria-live="polite"
+      aria-label="Notifications"
+    >
       <div className="flex flex-col gap-3">
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} onDismiss={() => onDismiss(toast.id)} />
@@ -48,7 +53,7 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
   }
 
   return (
-    <div className={`${baseStyles} ${variantStyles[variant]}`} role="status">
+    <div className={`${baseStyles} ${variantStyles[variant]}`}>
       {icon[variant]}
       <p className="flex-1 text-sm leading-snug">{message}</p>
       <button

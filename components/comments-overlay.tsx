@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { X, Trash2, MessageCircle } from "lucide-react"
 import Image from "next/image"
 
@@ -11,6 +11,7 @@ import { buildAvatarPlaceholder, formatRelativeTimestamp, getErrorMessage } from
 import { useDisplayName } from "@/hooks/use-display-name"
 import { useToast } from "@/components/toast-provider"
 import { CommentItemSkeleton } from "@/components/skeletons"
+import { useFocusTrap } from "@/hooks/use-focus-trap"
 
 interface CommentsOverlayProps {
   postId: string
@@ -31,7 +32,7 @@ function CommentItem({ comment, canDelete, onDelete, deleting }: CommentItemProp
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || comment.userId), [displayName, comment.userId])
 
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-3" role="listitem">
       <Image src={avatar} alt={displayName} width={32} height={32} className="rounded-full flex-shrink-0" />
       <div className="flex-1">
         <div className="flex items-center gap-2 mb-1">
@@ -41,7 +42,8 @@ function CommentItem({ comment, canDelete, onDelete, deleting }: CommentItemProp
             <button
               onClick={() => onDelete(comment.id)}
               disabled={deleting}
-              className="ml-auto text-gray-400 hover:text-red-400 text-xs disabled:opacity-50"
+              className="ml-auto text-gray-400 hover:text-red-400 text-xs disabled:opacity-50 focus-visible-ring"
+              aria-label="Delete comment"
             >
               <Trash2 size={14} />
             </button>
@@ -62,6 +64,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   const [posting, setPosting] = useState(false)
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
   const { showToast } = useToast()
+  const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const unsubscribe = listenToComments(
@@ -81,7 +84,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
     )
 
     return () => unsubscribe()
-  }, [postId])
+  }, [postId, showToast])
 
   useEffect(() => {
     onCommentCountChange?.(postId, comments.length)
@@ -118,17 +121,44 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
     }
   }
 
+  useFocusTrap(overlayRef, true)
+
+  useEffect(() => {
+    const firstFocusable = overlayRef.current?.querySelector<HTMLElement>(
+      'button, input, textarea, [tabindex]:not([tabindex="-1"])',
+    )
+    firstFocusable?.focus()
+  }, [])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      onClose()
+    }
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-      <div className="bg-gray-900 w-full h-2/3 rounded-t-3xl animate-in slide-in-from-bottom duration-300 flex flex-col">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onKeyDown={handleKeyDown}>
+      <div
+        ref={overlayRef}
+        className="bg-gray-900 w-full h-2/3 rounded-t-3xl animate-in slide-in-from-bottom duration-300 flex flex-col focus-visible-ring"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="comments-title"
+      >
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h3 className="text-white font-semibold text-lg">Comments</h3>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-700 transition-colors">
+          <h3 id="comments-title" className="text-white font-semibold text-lg">
+            Comments
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-gray-700 transition-colors focus-visible-ring"
+            aria-label="Close comments"
+          >
             <X size={20} className="text-white" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4" role="list" aria-live="polite">
           {loading ? (
             <div className="space-y-4">
               {Array.from({ length: 4 }).map((_, index) => (
@@ -163,7 +193,11 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
             </div>
           )}
 
-          {error && <div className="text-center text-sm text-red-300">{error}</div>}
+          {error && (
+            <div className="text-center text-sm text-red-300" role="alert">
+              {error}
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-t border-gray-700">
@@ -188,12 +222,16 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
                 }}
                 placeholder={disableActions ? "Sign in to add a comment" : "Add a comment..."}
                 disabled={posting || disableActions}
-                className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-60"
+                className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-60 focus-visible-ring"
+                maxLength={500}
+                aria-label="Add a comment"
+                aria-invalid={error ? "true" : "false"}
               />
               <button
                 onClick={handleSubmit}
                 disabled={disableActions || posting || !newComment.trim()}
-                className="px-4 py-2 bg-white text-black rounded-full text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 bg-white text-black rounded-full text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors focus-visible-ring"
+                aria-label={posting ? "Posting comment" : "Post comment"}
               >
                 {posting ? "Posting" : "Post"}
               </button>

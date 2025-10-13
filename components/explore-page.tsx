@@ -113,7 +113,7 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
               <div className="space-y-2">
                 <h3 className="text-xl font-semibold">No sets in this category</h3>
                 <p className="text-sm text-gray-400">
-                  This comedy style doesn't have any clips yet. Try exploring other categories or check back soon!
+                  This comedy style doesn&#39;t have any clips yet. Try exploring other categories or check back soon!
                 </p>
               </div>
               <button
@@ -138,6 +138,8 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
                       alt={post.title}
                       fill
                       className="object-cover transition-transform group-hover:scale-105"
+                      loading="lazy"
+                      priority={false}
                     />
                   ) : (
                     // Without a stored thumbnail we still show a muted looping preview.
@@ -179,7 +181,7 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
             </div>
           ) : (
             curatedPosts.length > 0 && (
-              <div className="py-8 text-center text-sm text-gray-500">You're all caught up.</div>
+              <div className="py-8 text-center text-sm text-gray-500">You&#39;re all caught up.</div>
             )
           )}
         </div>
