@@ -25,7 +25,7 @@ export default function UploadPage() {
   const { showToast } = useToast()
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [category, setCategory] = useState(DEFAULT_CATEGORY_VALUE)
+  const [category, setCategory] = useState<string>(DEFAULT_CATEGORY_VALUE)
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [videoPreview, setVideoPreview] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)

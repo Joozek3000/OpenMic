@@ -9,9 +9,11 @@ import {
   getDocs,
   increment,
   getCountFromServer,
+  limit,
   onSnapshot,
   orderBy,
   query,
+  startAfter,
   serverTimestamp,
   updateDoc,
   type FirestoreError as FirebaseFirestoreError,
@@ -47,17 +49,45 @@ function mapDocToPost(docSnap: QueryDocumentSnapshot<DocumentData>): Post {
 }
 
 export function listenToPosts(
-  onUpdate: (posts: Post[]) => void,
+  onUpdate: (posts: Post[], lastDoc?: QueryDocumentSnapshot<DocumentData>) => void,
   onError?: (error: FirebaseFirestoreError) => void,
+  onTimeout?: () => void,
+  options?: { limit?: number; startAfter?: QueryDocumentSnapshot<DocumentData> },
 ) {
   // Subscribe to Firestore updates ordered by newest first.
-  const postsQuery = query(postsCollection, orderBy("timestamp", "desc"))
-  return onSnapshot(
+  const pageSize = options?.limit ?? 30
+  const orderConstraint = orderBy("timestamp", "desc")
+  const limitConstraint = limit(pageSize)
+  const cursorConstraint = options?.startAfter ? startAfter(options.startAfter) : undefined
+
+  const postsQuery = cursorConstraint
+    ? query(postsCollection, orderConstraint, cursorConstraint, limitConstraint)
+    : query(postsCollection, orderConstraint, limitConstraint)
+  let initialSnapshotPending = true
+  const timeoutMs = 10_000
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+  const clearListenerTimeout = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+      timeoutId = null
+    }
+  }
+
+  timeoutId = setTimeout(() => {
+    if (!initialSnapshotPending) return
+    onTimeout?.()
+  }, timeoutMs)
+
+  const unsubscribe = onSnapshot(
     postsQuery,
     (snapshot) => {
+      clearListenerTimeout()
+      initialSnapshotPending = false
       try {
         const posts = snapshot.docs.map((docSnap) => mapDocToPost(docSnap))
-        onUpdate(posts)
+        const lastDocument = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : undefined
+        onUpdate(posts, lastDocument)
       } catch (error) {
         console.error("Failed to process posts snapshot", error)
         if (onError) {
@@ -76,12 +106,19 @@ export function listenToPosts(
     },
     (firestoreError) => {
       console.error("Failed to listen to posts", firestoreError)
+      clearListenerTimeout()
       if (!onError) return
 
-      const retryable = isNetworkError(firestoreError)
-      const message = retryable
-        ? "Connection lost. Attempting to reconnect to posts feed."
-        : getErrorMessage(firestoreError)
+      const code = String(firestoreError.code ?? "").toLowerCase()
+      let message: string
+
+      if (code.includes("permission")) {
+        message = "Can't load posts. Check permissions."
+      } else if (isNetworkError(firestoreError)) {
+        message = "Connection lost. Reconnecting..."
+      } else {
+        message = getErrorMessage(firestoreError)
+      }
 
       onError({
         ...firestoreError,
@@ -89,6 +126,25 @@ export function listenToPosts(
       })
     },
   )
+
+  return () => {
+    clearListenerTimeout()
+    unsubscribe()
+  }
+}
+
+export async function fetchMorePosts(lastDoc: QueryDocumentSnapshot<DocumentData>, pageSize: number) {
+  const postsQuery = query(postsCollection, orderBy("timestamp", "desc"), startAfter(lastDoc), limit(pageSize))
+
+  const snapshot = await getDocs(postsQuery)
+  const posts = snapshot.docs.map((docSnap) => mapDocToPost(docSnap))
+  const nextLastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : undefined
+
+  return {
+    posts,
+    lastDoc: nextLastDoc,
+    hasMore: snapshot.docs.length >= pageSize,
+  }
 }
 
 export async function createPost(input: CreatePostInput) {
@@ -101,18 +157,16 @@ export async function createPost(input: CreatePostInput) {
       category: input.category,
       userId: input.userId,
       timestamp: serverTimestamp(),
-    likes: [],
-    fileId: input.fileId,
-    thumbnailURL: input.thumbnailURL ?? null,
-    thumbnailFileId: input.thumbnailFileId ?? null,
-    viewCount: 0,
-    commentCount: 0,
-  })
+      likes: [],
+      fileId: input.fileId,
+      thumbnailURL: input.thumbnailURL ?? null,
+      thumbnailFileId: input.thumbnailFileId ?? null,
+      viewCount: 0,
+      commentCount: 0,
+    })
   } catch (error) {
     const retryable = isNetworkError(error)
-    const message = retryable
-      ? "Network issue while publishing your set. Please try again."
-      : getErrorMessage(error)
+    const message = retryable ? "Network issue. Try again." : getErrorMessage(error)
 
     throw new StorageError(message, {
       code: "app/create-post",
@@ -130,9 +184,7 @@ export async function toggleLike(postId: string, userId: string, shouldLike: boo
     })
   } catch (error) {
     const retryable = isNetworkError(error)
-    const message = retryable
-      ? "Connection issue while updating laughs."
-      : "Unable to update likes for this set."
+    const message = retryable ? "Connection issue. Try again." : "Can't update likes."
 
     throw new FirestoreError(message, {
       code: "app/toggle-like",
@@ -184,9 +236,7 @@ export function listenToComments(
       if (!onError) return
 
       const retryable = isNetworkError(firestoreError)
-      const message = retryable
-        ? "Connection lost. Attempting to reconnect to comments."
-        : getErrorMessage(firestoreError)
+      const message = retryable ? "Connection lost. Reconnecting..." : getErrorMessage(firestoreError)
 
       onError({
         ...firestoreError,
@@ -212,9 +262,7 @@ export async function addComment({ postId, text, userId }: CreateCommentInput) {
     })
   } catch (error) {
     const retryable = isNetworkError(error)
-    const message = retryable
-      ? "Network issue while posting your comment."
-      : "Unable to add comment right now."
+    const message = retryable ? "Network issue. Try again." : "Can't add comment."
 
     throw new FirestoreError(message, {
       code: "app/add-comment",
@@ -236,9 +284,7 @@ export async function deleteComment(postId: string, commentId: string) {
     })
   } catch (error) {
     const retryable = isNetworkError(error)
-    const message = retryable
-      ? "Network issue while removing your comment."
-      : "Unable to delete comment right now."
+    const message = retryable ? "Network issue. Try again." : "Can't delete comment."
 
     throw new FirestoreError(message, {
       code: "app/delete-comment",
@@ -259,9 +305,7 @@ export async function deletePost(post: Pick<Post, "id" | "fileId"> & { thumbnail
     await deleteDoc(postRef)
   } catch (error) {
     const retryable = isNetworkError(error)
-    const message = retryable
-      ? "Network issue while deleting the set. Please try again."
-      : "Unable to delete this set right now."
+    const message = retryable ? "Network issue. Try again." : "Can't delete set."
 
     throw new FirestoreError(message, {
       code: "app/delete-post",
@@ -328,8 +372,8 @@ export async function uploadVideoFile(file: File) {
   } catch (error) {
     const retryable = isNetworkError(error)
     const message = retryable
-      ? "Network issue while uploading video. Please check your connection."
-      : `Unable to upload video file${file.name ? ` "${file.name}"` : ""}.`
+      ? "Upload failed. Check connection."
+      : `Can't upload video${file.name ? ` "${file.name}"` : ""}.`
 
     if (retryable) {
       throw new NetworkError(message, {
@@ -361,9 +405,7 @@ export async function uploadThumbnailFile(blob: Blob) {
     return { thumbnailURL, fileId }
   } catch (error) {
     const retryable = isNetworkError(error)
-    const message = retryable
-      ? "Network issue while uploading the cover image."
-      : "Unable to upload cover image."
+    const message = retryable ? "Upload failed. Try again." : "Can't upload cover."
 
     if (retryable) {
       throw new NetworkError(message, {

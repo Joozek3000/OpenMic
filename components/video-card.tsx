@@ -1,20 +1,35 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Heart, MessageCircle, Share, Music, Trash2, Tag, CheckCircle, Volume2, VolumeX, Play } from "lucide-react"
 import Image from "next/image"
 
 import { useToast } from "@/components/toast-provider"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 import type { Post } from "@/lib/types"
-import { buildAvatarPlaceholder, formatLargeNumber, formatRelativeTimestamp, getCategoryLabel } from "@/lib/utils"
+import {
+  buildAvatarPlaceholder,
+  formatLargeNumber,
+  formatRelativeTimestamp,
+  getCategoryLabel,
+  canAutoplay,
+  detectAutoplaySupport,
+} from "@/lib/utils"
 
 interface LikeState {
   liked: boolean
   count: number
   pending: boolean
 }
+
+const autoplayGlobals = {
+  lastWarningTime: 0,
+  autoplayBlocked: false,
+}
+
+const AUTOPLAY_WARNING_COOLDOWN = 10_000
 
 interface VideoCardProps {
   post: Post
@@ -57,10 +72,12 @@ export default function VideoCard({
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
   const { showToast } = useToast()
+  const haptic = useHapticFeedback()
   const [videoError, setVideoError] = useState(false)
   const [isMuted, setIsMuted] = useState(preferences.startMuted)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPortrait, setIsPortrait] = useState(false)
+  const [showPlayOverlay, setShowPlayOverlay] = useState(false)
   const hasTrackedViewRef = useRef(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const observerOptionsRef = useRef<IntersectionObserverInit>({ threshold: 0.6 })
@@ -71,6 +88,19 @@ export default function VideoCard({
     return error instanceof DOMException && error.name === "AbortError"
   }
 
+  const warnAutoplayBlocked = useCallback(() => {
+    const now = Date.now()
+    if (now - autoplayGlobals.lastWarningTime < AUTOPLAY_WARNING_COOLDOWN) {
+      autoplayGlobals.autoplayBlocked = true
+      setShowPlayOverlay(true)
+      return
+    }
+    autoplayGlobals.lastWarningTime = now
+    autoplayGlobals.autoplayBlocked = true
+    setShowPlayOverlay(true)
+    showToast("Video autoplay blocked. Tap to play.", "info")
+  }, [showToast])
+
   // Build derived values up front so the JSX stays tidy.
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
   const relativeTime = useMemo(() => formatRelativeTimestamp(post.timestamp), [post.timestamp])
@@ -79,7 +109,12 @@ export default function VideoCard({
   useEffect(() => {
     hasTrackedViewRef.current = false
     setIsPortrait(false)
+    setShowPlayOverlay(false)
   }, [post.id])
+
+  useEffect(() => {
+    void detectAutoplaySupport()
+  }, [])
 
   useEffect(() => {
     const videoElement = videoRef.current
@@ -104,39 +139,71 @@ export default function VideoCard({
             return
           }
 
+          const support = canAutoplay()
+          if (autoplayGlobals.autoplayBlocked) {
+            setShowPlayOverlay(true)
+          }
+
           if (!hasTrackedViewRef.current) {
             hasTrackedViewRef.current = true
             onViewed?.()
           }
-          videoElement.muted = isMutedRef.current
+
+          const initialMuted = support.withSound ? isMutedRef.current : true
+          videoElement.muted = initialMuted
+          if (initialMuted !== isMutedRef.current) {
+            isMutedRef.current = initialMuted
+            setIsMuted(initialMuted)
+          }
+
           void videoElement
             .play()
             .then(() => {
               setIsPlaying(true)
+              setShowPlayOverlay(false)
+              autoplayGlobals.autoplayBlocked = false
             })
-            .catch((error) => {
-              if (isAbortError(error)) {
-                return
-              }
-              if (!isMutedRef.current) {
-                // Browser blocked autoplay with sound, fall back to muted playback.
-                console.warn("Autoplay with sound blocked; reverting to muted", error)
-                videoElement.muted = true
-                setIsMuted(true)
-                void videoElement
-                  .play()
-                  .then(() => setIsPlaying(true))
-                  .catch((err) => {
-                    if (isAbortError(err)) {
-                      return
-                    }
-                    console.error("Video playback failed", err)
-                    showToast("Video autoplay blocked. Tap to play.", "info")
-                  })
-              } else {
-                console.error("Video playback failed", error)
-                showToast("Video autoplay blocked. Tap to play.", "info")
-              }
+              .catch((error) => {
+                if (isAbortError(error)) {
+                  return
+                }
+
+                const isPermissionError =
+                  error instanceof DOMException &&
+                  (error.name === "NotAllowedError" || error.name === "AbortError")
+
+                if (!initialMuted) {
+                  if (!isPermissionError) {
+                    console.warn("Autoplay with sound blocked; reverting to muted", error)
+                  }
+                  videoElement.muted = true
+                  setIsMuted(true)
+                  isMutedRef.current = true
+                  void videoElement
+                    .play()
+                    .then(() => {
+                      setIsPlaying(true)
+                      setShowPlayOverlay(false)
+                      autoplayGlobals.autoplayBlocked = false
+                    })
+                    .catch((err) => {
+                      if (isAbortError(err)) {
+                        return
+                      }
+                      const mutedPermissionError =
+                        err instanceof DOMException &&
+                        (err.name === "NotAllowedError" || err.name === "AbortError")
+                      if (!mutedPermissionError) {
+                        console.warn("Video playback failed", err)
+                      }
+                      warnAutoplayBlocked()
+                    })
+                } else {
+                  if (!isPermissionError) {
+                    console.warn("Video playback failed", error)
+                  }
+                  warnAutoplayBlocked()
+                }
             })
         } else if (!videoElement.paused) {
           videoElement.pause()
@@ -153,12 +220,19 @@ export default function VideoCard({
       observer.disconnect()
       observerRef.current = null
     }
-  }, [onViewed, showToast])
+  }, [onViewed, warnAutoplayBlocked])
 
   useEffect(() => {
     const videoElement = videoRef.current
     if (!videoElement) return
-    videoElement.muted = isMuted
+    if (videoElement.muted !== isMuted) {
+      videoElement.muted = isMuted
+      if (!isMuted && !videoElement.paused) {
+        void videoElement.play().catch(() => {
+          // Some browsers still require user interaction; ignore errors here.
+        })
+      }
+    }
   }, [isMuted])
 
   useEffect(() => {
@@ -187,21 +261,31 @@ export default function VideoCard({
         .then(() => {
           setIsMuted(false)
           setIsPlaying(true)
+          setShowPlayOverlay(false)
+          autoplayGlobals.autoplayBlocked = false
+          isMutedRef.current = false
         })
-        .catch((error) => {
-          if (isAbortError(error)) {
-            videoElement.muted = true
-            setIsMuted(true)
-            return
-          }
-          console.warn("Unable to unmute automatically", error)
-          videoElement.muted = true
-          setIsMuted(true)
-          showToast("Autoplay with sound is blocked. Tap to play.", "info")
-        })
+            .catch((error) => {
+              if (isAbortError(error)) {
+                videoElement.muted = true
+                setIsMuted(true)
+                isMutedRef.current = true
+                return
+              }
+              const isPermissionError =
+                error instanceof DOMException &&
+                (error.name === "NotAllowedError" || error.name === "AbortError")
+              if (!isPermissionError) {
+                console.warn("Unable to unmute automatically", error)
+              }
+              videoElement.muted = true
+              setIsMuted(true)
+              warnAutoplayBlocked()
+            })
     } else {
       videoElement.muted = true
       setIsMuted(true)
+      isMutedRef.current = true
     }
   }
 
@@ -219,6 +303,8 @@ export default function VideoCard({
             .play()
             .then(() => {
               setIsPlaying(true)
+              setShowPlayOverlay(false)
+              autoplayGlobals.autoplayBlocked = false
             })
             .catch((error) => {
               if (isAbortError(error)) {
@@ -258,6 +344,8 @@ export default function VideoCard({
               }}
               onPlay={() => {
                 setIsPlaying(true)
+                setShowPlayOverlay(false)
+                autoplayGlobals.autoplayBlocked = false
                 if (!hasTrackedViewRef.current) {
                   hasTrackedViewRef.current = true
                   onViewed?.()
@@ -275,9 +363,9 @@ export default function VideoCard({
           )}
         </div>
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-        {!isPlaying && !videoError && (
+        {(showPlayOverlay || !isPlaying) && !videoError && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="bg-black/40 rounded-full p-4">
+            <div className={`rounded-full p-4 transition-transform ${showPlayOverlay ? "bg-black/60 scale-110" : "bg-black/40"}`}>
               <Play size={36} className="text-white" />
             </div>
           </div>
@@ -287,8 +375,9 @@ export default function VideoCard({
           onClick={(event) => {
             event.stopPropagation()
             handleToggleMute()
+            haptic.light()
           }}
-          className="absolute top-16 right-4 z-10 p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors focus-visible-ring"
+          className="absolute top-16 right-4 z-10 p-3 rounded-full bg-black/40 hover:bg-black/60 transition-colors active-scale tap-highlight-none focus-visible-ring"
           aria-label={isMuted ? "Unmute video" : "Mute video"}
           aria-pressed={!isMuted}
         >
@@ -317,12 +406,16 @@ export default function VideoCard({
               <button
                 onClick={(event) => {
                   event.stopPropagation()
+                  if (disableActions || followDisabled) return
                   onToggleFollow()
+                  haptic.medium()
                 }}
                 disabled={disableActions || followDisabled}
-                className={`px-3 py-1 rounded-full text-sm font-semibold transition-colors ${
-                  isFollowing ? "bg-white/10 text-white" : "bg-white text-black hover:bg-gray-200"
-                } ${disableActions || followDisabled ? "opacity-60 cursor-not-allowed" : ""} focus-visible-ring`}
+                className={`min-h-[40px] min-w-[48px] max-w-[140px] px-3 py-2 rounded-full text-sm font-semibold active-scale tap-highlight-none transition-all duration-300 ease-out flex items-center justify-center whitespace-nowrap overflow-hidden text-ellipsis ${
+                  isFollowing
+                    ? "bg-white/10 text-white"
+                    : "bg-white text-black hover:bg-gray-200 hover:shadow-lg"
+                } ${disableActions || followDisabled ? "opacity-60 cursor-not-allowed" : "hover-lift"} focus-visible-ring`}
                 aria-label={isFollowing ? `Unfollow ${displayName}` : `Follow ${displayName}`}
                 aria-pressed={isFollowing}
               >
@@ -351,11 +444,19 @@ export default function VideoCard({
             <button
               onClick={(event) => {
                 event.stopPropagation()
+                if (disableActions || likeState.pending) return
                 onToggleLike()
+                if (!likeState.liked) {
+                  haptic.medium()
+                } else {
+                  haptic.light()
+                }
               }}
               disabled={disableActions || likeState.pending}
-              className={`p-3 rounded-full transition-all duration-200 ${
-                likeState.liked ? "bg-red-500" : "bg-black/30 hover:bg-black/50"
+              className={`p-3 rounded-full active-scale tap-highlight-none transition-all duration-300 ease-out ${
+                likeState.liked
+                  ? "bg-red-500 shadow-red-500/40 animate-bounce-subtle"
+                  : "bg-black/30 hover:bg-black/50 hover:shadow-lg"
               } ${disableActions || likeState.pending ? "opacity-60 cursor-not-allowed" : ""} focus-visible-ring`}
               aria-label={
                 likeState.liked
@@ -374,8 +475,9 @@ export default function VideoCard({
               onClick={(event) => {
                 event.stopPropagation()
                 onCommentsClick()
+                haptic.light()
               }}
-              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200 focus-visible-ring"
+              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-300 ease-out hover:shadow-lg active-scale tap-highlight-none focus-visible-ring"
               aria-label={`View ${commentCount} comments`}
             >
               <MessageCircle size={24} className="text-white" />
@@ -388,8 +490,11 @@ export default function VideoCard({
               onClick={(event) => {
                 event.stopPropagation()
                 onShare()
+                haptic.light()
               }}
-              className="p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-200 focus-visible-ring"
+              className={`p-3 rounded-full bg-black/30 hover:bg-black/50 transition-all duration-300 ease-out hover:shadow-lg active-scale tap-highlight-none focus-visible-ring ${
+                showShareSuccess ? "animate-bounce-subtle" : ""
+              }`}
               aria-label={showShareSuccess ? "Link copied" : "Share video"}
             >
               <Share size={24} className="text-white" />
@@ -401,10 +506,12 @@ export default function VideoCard({
             <button
               onClick={(event) => {
                 event.stopPropagation()
+                if (isDeleting || disableActions) return
+                haptic.heavy()
                 onDelete()
               }}
               disabled={isDeleting || disableActions}
-              className="p-3 rounded-full bg-black/30 hover:bg-red-600/60 transition-all duration-200 text-white disabled:opacity-60 focus-visible-ring"
+              className="p-3 rounded-full bg-black/30 hover:bg-red-600/60 transition-all duration-300 ease-out text-white disabled:opacity-60 active-scale tap-highlight-none focus-visible-ring"
               aria-label="Delete this video"
             >
               <Trash2 size={24} />

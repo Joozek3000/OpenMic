@@ -67,6 +67,7 @@ const DEFAULT_DURATION: Record<ToastVariant, number> = {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, dispatch] = useReducer(toastReducer, [])
   const timeoutRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const deduplicationCache = useRef<Map<string, { id: string; timestamp: number }>>(new Map())
 
   const clearToastTimeout = useCallback((id: string) => {
     const timeouts = timeoutRefs.current
@@ -77,21 +78,46 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const cleanupExpiredToasts = useCallback(() => {
+    const now = Date.now()
+    const cache = deduplicationCache.current
+    cache.forEach((entry, key) => {
+      if (now - entry.timestamp > 2000) {
+        cache.delete(key)
+      }
+    })
+  }, [])
+
   const dismissToast = useCallback<ToastContextValue["dismissToast"]>(
     (id) => {
       clearToastTimeout(id)
       dispatch({ type: "REMOVE", id })
+      const cache = deduplicationCache.current
+      cache.forEach((entry, key) => {
+        if (entry.id === id) {
+          cache.delete(key)
+        }
+      })
     },
     [clearToastTimeout],
   )
 
   const showToast = useCallback<ToastContextValue["showToast"]>(
     (message, variant = "info", options) => {
+      cleanupExpiredToasts()
+      const now = Date.now()
+      const cacheKey = `${message}:${variant}`
+      const cachedEntry = deduplicationCache.current.get(cacheKey)
+      if (cachedEntry && now - cachedEntry.timestamp < 2000) {
+        return cachedEntry.id
+      }
+
       const id = generateToastId()
       const duration = options?.duration ?? DEFAULT_DURATION[variant]
       const toast: Toast = { id, message, variant, duration }
 
       dispatch({ type: "ADD", toast })
+      deduplicationCache.current.set(cacheKey, { id, timestamp: now })
 
       if (duration && duration > 0) {
         const timeoutId = setTimeout(() => {
@@ -102,14 +128,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
       return id
     },
-    [dismissToast],
+    [cleanupExpiredToasts, dismissToast],
   )
 
   useEffect(() => {
     const timeouts = timeoutRefs.current
+    const cache = deduplicationCache.current
     return () => {
       timeouts.forEach((timeoutId) => clearTimeout(timeoutId))
       timeouts.clear()
+      cache.clear()
     }
   }, [])
 

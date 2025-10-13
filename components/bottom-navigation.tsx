@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Home, Search, Plus, Compass, User } from "lucide-react"
 
 import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 
 interface BottomNavigationProps {
   activeTab: string
@@ -27,6 +28,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
     tabs.findIndex((tab) => tab.id === activeTab),
   )
   const [focusedIndex, setFocusedIndex] = useState(activeIndex)
+  const haptic = useHapticFeedback()
 
   useEffect(() => {
     setFocusedIndex(activeIndex)
@@ -76,9 +78,33 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
     button?.focus()
   }, [focusedIndex, tabs])
 
+  const indicatorStyle = useMemo(() => {
+    const width = 100 / tabs.length
+    const left = activeIndex * width
+    return {
+      width: `${width}%`,
+      left: `${left}%`,
+    }
+  }, [activeIndex, tabs.length])
+
   return (
-    <nav className="bg-black border-t border-gray-800 px-2 py-1" role="navigation" aria-label="Main navigation">
-      <div className="flex justify-around items-center max-w-md mx-auto" role="tablist" aria-label="App tabs">
+    <nav
+      className="bg-black border-t border-gray-800 px-2 pt-1"
+      style={{ paddingBottom: `calc(0.9rem + env(safe-area-inset-bottom, 0px))` }}
+      role="navigation"
+      aria-label="Main navigation"
+    >
+      <div
+        className="relative grid items-center max-w-md mx-auto"
+        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+        role="tablist"
+        aria-label="App tabs"
+      >
+        <div
+          className="absolute bottom-0 h-0.5 bg-white/80 transition-all duration-300 ease-out"
+          style={indicatorStyle}
+          aria-hidden="true"
+        />
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
@@ -89,12 +115,15 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
           return (
             <button
               key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`flex flex-col items-center justify-center p-2 transition-all duration-200 ${
+              onClick={() => {
+                haptic.light()
+                onTabChange(tab.id)
+              }}
+              className={`flex w-full flex-col items-center justify-center min-h-[48px] p-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
                 isUpload
-                  ? "bg-white text-black rounded-lg px-4 py-2"
+                  ? "bg-white text-black rounded-lg px-4 py-2 hover:scale-105"
                   : isActive
-                    ? "text-white"
+                    ? "text-white scale-105 animate-bounce-subtle"
                     : "text-gray-400 hover:text-gray-200"
               } focus-visible-ring`}
               data-tab={tab.id}

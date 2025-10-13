@@ -22,6 +22,8 @@ import { deletePost, fetchCommentCount, incrementViewCount, toggleLike } from "@
 import type { Post } from "@/lib/types"
 import { getErrorMessage } from "@/lib/utils"
 import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
+import { useSwipeGesture } from "@/hooks/use-swipe-gesture"
 
 interface LikeState {
   liked: boolean
@@ -38,10 +40,11 @@ interface VideoFeedProps {
 }
 
 const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpload }, ref) => {
-  const { posts, loading: postsLoading, error } = usePostsContext()
+  const { posts, loading: postsLoading, error, loadMorePosts, hasMore, loadingMore } = usePostsContext()
   const { user, loading: authLoading } = useAuth()
   const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
   const { showToast } = useToast()
+  const haptic = useHapticFeedback()
 
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [showComments, setShowComments] = useState(false)
@@ -54,6 +57,7 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   const [prefetchIndex, setPrefetchIndex] = useState<number>(-1)
   const prefetchVideoRef = useRef<HTMLVideoElement | null>(null)
   const [announcement, setAnnouncement] = useState("")
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   useImperativeHandle(ref, () => ({
     scrollToPost: (postId: string) => {
@@ -287,25 +291,47 @@ const disableActions = authLoading || !user
 
 const showSkeletons = postsLoading && derivedPosts.length === 0
 
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      const target = derivedPosts[index]
+      if (!target) return
+      const node = document.getElementById(`post-${target.id}`)
+      if (node) {
+        node.scrollIntoView({ behavior: "smooth", block: "start" })
+        setActiveIndex(index)
+      }
+    },
+    [derivedPosts],
+  )
+
+  const swipeHandlers = useSwipeGesture({
+    threshold: 80,
+    enabled: !showComments && derivedPosts.length > 0,
+    onSwipeUp: () => {
+      if (activeIndex >= derivedPosts.length - 1) return
+      scrollToIndex(activeIndex + 1)
+      haptic.light()
+    },
+    onSwipeDown: () => {
+      if (activeIndex <= 0) return
+      scrollToIndex(activeIndex - 1)
+      haptic.light()
+    },
+  })
+
   useKeyboardNavigation({
     axis: "vertical",
     enabled: !showComments,
     onNext: () => {
       const nextIndex = Math.min(activeIndex + 1, derivedPosts.length - 1)
       if (nextIndex !== activeIndex) {
-        const nextPost = derivedPosts[nextIndex]
-        const node = document.getElementById(`post-${nextPost.id}`)
-        node?.scrollIntoView({ behavior: "smooth", block: "start" })
-        setActiveIndex(nextIndex)
+        scrollToIndex(nextIndex)
       }
     },
     onPrevious: () => {
       const previousIndex = Math.max(activeIndex - 1, 0)
       if (previousIndex !== activeIndex) {
-        const previousPost = derivedPosts[previousIndex]
-        const node = document.getElementById(`post-${previousPost.id}`)
-        node?.scrollIntoView({ behavior: "smooth", block: "start" })
-        setActiveIndex(previousIndex)
+        scrollToIndex(previousIndex)
       }
     },
   })
@@ -318,11 +344,38 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
     setAnnouncement(`Now viewing ${current.title}`)
   }, [activeIndex, derivedPosts])
 
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel || !hasMore) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !loadingMore) {
+            loadMorePosts().catch(() => {
+              // errors handled in provider
+            })
+          }
+        })
+      },
+      { threshold: 0.1 },
+    )
+
+    observer.observe(sentinel)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [hasMore, loadMorePosts, loadingMore])
+
   return (
     <div
-      className="relative h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide"
+      className="relative h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide overscroll-contain"
       role="feed"
       aria-label="Video feed"
+      {...swipeHandlers}
     >
       {error && !postsLoading && (
         <div className="px-4 py-3 bg-red-600/20 text-red-200 text-sm text-center">{error}</div>
@@ -330,7 +383,7 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
 
       {showSkeletons ? (
         Array.from({ length: 3 }).map((_, index) => <VideoCardSkeleton key={`video-skeleton-${index}`} />)
-      ) : derivedPosts.length === 0 && !postsLoading ? (
+      ) : derivedPosts.length === 0 && !postsLoading && !loadingMore ? (
         <div className="flex h-full items-center justify-center px-6">
           <div className="flex flex-col items-center text-center gap-4 max-w-sm">
             <Upload size={72} className="text-gray-600" />
@@ -391,6 +444,14 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
             />
           )
         })
+      )}
+
+      {hasMore && <div ref={sentinelRef} className="h-6 w-full" aria-hidden="true" />}
+      {loadingMore && (
+        <div className="px-4 py-6" aria-live="polite">
+          <span className="sr-only">Loading more videos</span>
+          <VideoCardSkeleton />
+        </div>
       )}
 
       {showComments && selectedPostId && (

@@ -159,6 +159,171 @@ export async function getVideoDuration(file: File) {
   })
 }
 
+let autoplaySupportPromise: Promise<AutoplaySupport> | null = null
+let cachedAutoplaySupport: AutoplaySupport | null = null
+
+interface AutoplaySupport {
+  withSound: boolean
+  muted: boolean
+  blocked: boolean
+}
+
+const AUTOPLAY_TEST_VIDEO =
+  "data:video/mp4;base64,AAAAHGZ0eXBpc29tAAAAAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAIAAAAF21kYXQAAABQaXMtAAAAHGlsc3QAAAAUAAAABAAAAAEAAQAAAgAAAAEAAwAAAAEAAAAAAAAAAAAAAAEAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAA=="
+
+async function attemptPlay(video: HTMLVideoElement, muted: boolean, timeoutMs = 2000) {
+  video.muted = muted
+  try {
+    const playResult = video.play()
+    if (playResult instanceof Promise) {
+      await Promise.race([
+        playResult,
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new DOMException("Autoplay detection timed out", "TimeoutError")), timeoutMs)
+        }),
+      ])
+    }
+    return { success: true, error: null as DOMException | null }
+  } catch (error) {
+    return { success: false, error: error instanceof DOMException ? error : null }
+  }
+}
+
+export async function detectAutoplaySupport(): Promise<AutoplaySupport> {
+  if (cachedAutoplaySupport) {
+    return cachedAutoplaySupport
+  }
+  if (!autoplaySupportPromise) {
+    autoplaySupportPromise = (async () => {
+      if (typeof document === "undefined") {
+        return { withSound: false, muted: true, blocked: false }
+      }
+
+      const video = document.createElement("video")
+      video.src = AUTOPLAY_TEST_VIDEO
+      video.playsInline = true
+      video.preload = "auto"
+
+      let withSound = false
+      let muted = false
+      let blocked = false
+
+      const soundAttempt = await attemptPlay(video, false)
+      if (soundAttempt.success) {
+        withSound = true
+        muted = true
+      } else {
+        const mutedAttempt = await attemptPlay(video, true)
+        if (mutedAttempt.success) {
+          muted = true
+        } else {
+          blocked = true
+        }
+      }
+
+      video.pause()
+      video.removeAttribute("src")
+      video.load()
+
+      cachedAutoplaySupport = { withSound, muted, blocked }
+      return cachedAutoplaySupport
+    })()
+  }
+  return autoplaySupportPromise
+}
+
+export function canAutoplay(): AutoplaySupport {
+  if (cachedAutoplaySupport) {
+    return cachedAutoplaySupport
+  }
+  // Trigger detection lazily
+  void detectAutoplaySupport()
+  return { withSound: false, muted: true, blocked: false }
+}
+
+type NavigatorConnection = {
+  effectiveType?: string
+  saveData?: boolean
+}
+
+function getNavigatorConnection() {
+  if (typeof navigator === "undefined") {
+    return undefined
+  }
+
+  const nav = navigator as Navigator & {
+    connection?: NavigatorConnection
+    mozConnection?: NavigatorConnection
+    webkitConnection?: NavigatorConnection
+  }
+
+  return nav.connection ?? nav.mozConnection ?? nav.webkitConnection
+}
+
+let cachedIsMobile: boolean | null = null
+
+export function isMobileDevice() {
+  if (cachedIsMobile !== null) {
+    return cachedIsMobile
+  }
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  const touchPoints = typeof navigator !== "undefined" && "maxTouchPoints" in navigator && navigator.maxTouchPoints > 0
+  const coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : false
+  const narrowViewport = window.matchMedia ? window.matchMedia("(max-width: 768px)").matches : false
+
+  cachedIsMobile = Boolean(touchPoints || coarsePointer || narrowViewport)
+  return cachedIsMobile
+}
+
+export function getConnectionType() {
+  const connection = getNavigatorConnection()
+
+  return connection?.effectiveType ?? "unknown"
+}
+
+export function isSlowConnection() {
+  const connection = getNavigatorConnection()
+
+  if (!connection) {
+    return false
+  }
+
+  const effectiveType = connection.effectiveType ?? ""
+  if (["slow-2g", "2g"].includes(effectiveType)) {
+    return true
+  }
+
+  if (connection.saveData) {
+    return true
+  }
+
+  return false
+}
+
+export function getMobileOptimizations() {
+  const isMobile = isMobileDevice()
+  const slowNetwork = isSlowConnection()
+  const reducedMotion =
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false
+
+  let initialPageSize = 30
+  if (slowNetwork) {
+    initialPageSize = 10
+  } else if (isMobile) {
+    initialPageSize = 20
+  }
+
+  return {
+    isMobile,
+    isSlowNetwork: slowNetwork,
+    reducedMotion,
+    initialPageSize,
+  }
+}
+
 export function validateVideoDuration(duration: number, maxSeconds: number = DEFAULT_MAX_DURATION) {
   if (!Number.isFinite(duration) || duration <= 0) {
     return { valid: false, error: "Invalid video duration." }

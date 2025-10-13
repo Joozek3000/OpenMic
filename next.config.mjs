@@ -1,7 +1,79 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import withPWAInit from "@ducanh2912/next-pwa";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const withPWA = withPWAInit({
+  dest: "public",
+  disable: process.env.NODE_ENV === "development",
+  register: true,
+  skipWaiting: true,
+  runtimeCaching: [
+    {
+      urlPattern: ({ request }) =>
+        ["style", "script", "worker", "font"].includes(request.destination),
+      handler: "CacheFirst",
+      options: {
+        cacheName: "static-resources",
+        expiration: {
+          maxAgeSeconds: 30 * 24 * 60 * 60,
+          maxEntries: 100,
+        },
+        cacheableResponse: {
+          statuses: [0, 200],
+        },
+      },
+    },
+    {
+      urlPattern: ({ request }) => request.destination === "image",
+      handler: "CacheFirst",
+      options: {
+        cacheName: "image-assets",
+        expiration: {
+          maxAgeSeconds: 30 * 24 * 60 * 60,
+          maxEntries: 200,
+        },
+        cacheableResponse: {
+          statuses: [0, 200],
+        },
+      },
+    },
+    {
+      urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/,
+      handler: "CacheFirst",
+      options: {
+        cacheName: "video-content",
+        expiration: {
+          maxAgeSeconds: 7 * 24 * 60 * 60,
+          maxEntries: 50,
+        },
+        cacheableResponse: {
+          statuses: [0, 200],
+        },
+      },
+    },
+    {
+      urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/,
+      handler: "NetworkFirst",
+      options: {
+        cacheName: "firestore-data",
+        networkTimeoutSeconds: 10,
+        expiration: {
+          maxAgeSeconds: 5 * 60,
+        },
+        cacheableResponse: {
+          statuses: [0, 200],
+        },
+      },
+    },
+    {
+      urlPattern: /^https:\/\/(identitytoolkit|securetoken)\.googleapis\.com\/.*/,
+      handler: "NetworkOnly",
+    },
+  ],
+});
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -20,4 +92,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPWA(nextConfig);

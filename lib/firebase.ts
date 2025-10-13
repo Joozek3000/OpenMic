@@ -1,6 +1,11 @@
 import { initializeApp, getApps, getApp, type FirebaseOptions } from "firebase/app"
 import { getAuth } from "firebase/auth"
-import { getFirestore } from "firebase/firestore"
+import {
+  getFirestore,
+  initializeFirestore,
+  enableIndexedDbPersistence,
+  enableMultiTabIndexedDbPersistence,
+} from "firebase/firestore"
 import { getStorage } from "firebase/storage"
 
 const firebaseConfig: FirebaseOptions = {
@@ -25,6 +30,41 @@ if (missingConfigKeys.length > 0 && typeof window !== "undefined") {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
 
+let dbInstance
+
+if (typeof window !== "undefined") {
+  try {
+    dbInstance = initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true,
+      cacheSizeBytes: 40 * 1024 * 1024,
+    })
+  } catch {
+    dbInstance = getFirestore(app)
+  }
+
+  void (async () => {
+    try {
+      await enableMultiTabIndexedDbPersistence(dbInstance)
+      if (process.env.NODE_ENV !== "production") {
+        console.info("Firestore persistence enabled (multi-tab)")
+      }
+    } catch (multiTabError) {
+      try {
+        await enableIndexedDbPersistence(dbInstance)
+        if (process.env.NODE_ENV !== "production") {
+          console.info("Firestore persistence enabled (single-tab)")
+        }
+      } catch (persistenceError) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Firestore persistence unavailable", persistenceError ?? multiTabError)
+        }
+      }
+    }
+  })()
+} else {
+  dbInstance = getFirestore(app)
+}
+
 export const auth = getAuth(app)
-export const db = getFirestore(app)
+export const db = dbInstance
 export const storage = getStorage(app)

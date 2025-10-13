@@ -9,6 +9,7 @@ import { useFilters } from "@/components/filters-provider"
 import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { formatLargeNumber, getCategoryLabel } from "@/lib/utils"
 import { GridItemSkeleton } from "@/components/skeletons"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 
 interface ExplorePageProps {
   onSelectPost: (postId: string) => void
@@ -17,6 +18,7 @@ interface ExplorePageProps {
 export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
   const { posts, loading } = usePostsContext()
   const { category, setCategory } = useFilters()
+  const haptic = useHapticFeedback()
   const curatedPosts = useMemo(() => {
     // Share the category filter with Search so both tabs stay in sync.
     const filtered = category === "all" ? posts : posts.filter((post) => post.category === category)
@@ -74,11 +76,14 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
           <div className="-mx-4">
             <div className="flex flex-wrap gap-2 px-4 pb-3 pt-4">
               <button
-                onClick={() => setCategory("all")}
-                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                onClick={() => {
+                  setCategory("all")
+                  haptic.light()
+                }}
+                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
                   category === "all"
                     ? "bg-white text-black border-white shadow-sm"
-                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
                 }`}
               >
                 For You
@@ -86,11 +91,14 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
               {availableCategories.map((categoryOption) => (
                 <button
                   key={categoryOption.value}
-                  onClick={() => setCategory(categoryOption.value)}
-                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                  onClick={() => {
+                    setCategory(categoryOption.value)
+                    haptic.light()
+                  }}
+                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
                     category === categoryOption.value
                       ? "bg-white text-black border-white shadow-sm"
-                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
                   }`}
                 >
                   {categoryOption.label}
@@ -118,19 +126,26 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
               </div>
               <button
                 type="button"
-                onClick={() => setCategory("all")}
-                className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+                onClick={() => {
+                  setCategory("all")
+                  haptic.light()
+                }}
+                className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 active-scale tap-highlight-none transition-all duration-300 ease-out"
               >
                 Browse All Comedy
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {curatedPosts.slice(0, visibleCount).map((post) => (
+              {curatedPosts.slice(0, visibleCount).map((post, index) => (
                 <div
                   key={post.id}
-                  className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
-                  onClick={() => onSelectPost(post.id)}
+                  className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out animate-in fade-in"
+                  style={{ animationDelay: `${index * 40}ms` }}
+                  onClick={() => {
+                    haptic.light()
+                    onSelectPost(post.id)
+                  }}
                 >
                   {post.thumbnailURL ? (
                     <Image
@@ -172,9 +187,12 @@ export default function ExplorePage({ onSelectPost }: ExplorePageProps) {
           {curatedPosts.length > visibleCount ? (
             <div className="py-8 text-center">
               <button
-                onClick={() => setVisibleCount((count) => Math.min(count + 12, curatedPosts.length))}
+                onClick={() => {
+                  setVisibleCount((count) => Math.min(count + 12, curatedPosts.length))
+                  haptic.light()
+                }}
                 disabled={loading}
-                className="bg-gray-800 text-white px-6 py-3 rounded-full font-medium hover:bg-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                className="bg-gray-800 text-white px-6 py-3 rounded-full font-medium hover:bg-gray-700 active-scale tap-highlight-none transition-all duration-300 ease-out disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Load More Sets
               </button>

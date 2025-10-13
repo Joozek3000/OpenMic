@@ -15,6 +15,7 @@ import { useDisplayName } from "@/hooks/use-display-name"
 import { getDisplayName } from "@/lib/data/users"
 import { GridItemSkeleton, UserRowSkeleton } from "@/components/skeletons"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 
 interface SearchPageProps {
   onSelectPost: (postId: string) => void
@@ -57,13 +58,17 @@ function SearchUserRow({
       ? "bg-white/10 text-white"
       : "bg-white text-black hover:bg-gray-200"
     : "bg-white text-black"
+  const haptic = useHapticFeedback()
 
   return (
     <div className="flex items-center justify-between">
       <button
         type="button"
-        onClick={onOpenProfile}
-        className="flex items-center gap-3 text-left transition-transform hover:scale-[1.01] focus-visible-ring"
+        onClick={() => {
+          onOpenProfile()
+          haptic.light()
+        }}
+        className="flex items-center gap-3 text-left active-scale tap-highlight-none transition-transform duration-200 ease-out hover:scale-102 focus-visible-ring"
         aria-label={`View profile of ${name}`}
       >
         <Image src={avatar} alt={name} width={40} height={40} className="rounded-full" />
@@ -79,12 +84,14 @@ function SearchUserRow({
           onClick={() => {
             if (!canFollow) {
               onRequestAuth?.()
+              haptic.light()
               return
             }
             onToggleFollow()
+            haptic.medium()
           }}
           disabled={disabled || (!canFollow && !onRequestAuth)}
-          className={`px-4 py-1 rounded-full text-sm font-semibold transition-colors ${buttonClasses} ${
+          className={`min-h-[48px] px-4 py-1 rounded-full text-sm font-semibold active-scale tap-highlight-none transition-all duration-300 ease-out ${buttonClasses} ${
             disabled || (!canFollow && !onRequestAuth) ? "opacity-60 cursor-not-allowed" : ""
           } focus-visible-ring`}
           aria-label={
@@ -126,6 +133,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
     { key: "likes", label: "Most Liked" },
   ]
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({})
+  const haptic = useHapticFeedback()
 
   const normalizedQuery = debouncedQuery.trim().toLowerCase()
 
@@ -299,11 +307,14 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
           <div className="-mx-4 mb-4" role="radiogroup" aria-label="Filter by category">
             <div className="flex flex-wrap gap-2 px-4 pb-3 pt-4">
               <button
-                onClick={() => setCategory("all")}
-                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                onClick={() => {
+                  setCategory("all")
+                  haptic.light()
+                }}
+                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
                   category === "all"
                     ? "bg-white text-black border-white shadow-sm"
-                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
                 } focus-visible-ring`}
                 role="radio"
                 aria-checked={category === "all"}
@@ -313,11 +324,14 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               {availableCategories.map((categoryOption) => (
                 <button
                   key={categoryOption.value}
-                  onClick={() => setCategory(categoryOption.value)}
-                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                  onClick={() => {
+                    setCategory(categoryOption.value)
+                    haptic.light()
+                  }}
+                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
                     category === categoryOption.value
                       ? "bg-white text-black border-white shadow-sm"
-                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
                   } focus-visible-ring`}
                   role="radio"
                   aria-checked={category === categoryOption.value}
@@ -330,9 +344,14 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
 
           <div className="flex gap-4 mb-6" role="tablist" aria-label="Search sections">
             <button
-              onClick={() => setActiveTab("trending")}
-              className={`px-4 py-2 rounded-full font-medium transition-colors ${
-                activeTab === "trending" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
+              onClick={() => {
+                setActiveTab("trending")
+                haptic.light()
+              }}
+              className={`px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
+                activeTab === "trending"
+                  ? "bg-white text-black"
+                  : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
               } focus-visible-ring`}
               role="tab"
               aria-selected={activeTab === "trending"}
@@ -341,9 +360,14 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               Trending
             </button>
             <button
-              onClick={() => setActiveTab("users")}
-              className={`px-4 py-2 rounded-full font-medium transition-colors ${
-                activeTab === "users" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
+              onClick={() => {
+                setActiveTab("users")
+                haptic.light()
+              }}
+              className={`px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
+                activeTab === "users"
+                  ? "bg-white text-black"
+                  : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
               } focus-visible-ring`}
               role="tab"
               aria-selected={activeTab === "users"}
@@ -352,9 +376,14 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               Comics
             </button>
             <button
-              onClick={() => setActiveTab("hashtags")}
-              className={`px-4 py-2 rounded-full font-medium transition-colors ${
-                activeTab === "hashtags" ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white"
+              onClick={() => {
+                setActiveTab("hashtags")
+                haptic.light()
+              }}
+              className={`px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
+                activeTab === "hashtags"
+                  ? "bg-white text-black"
+                  : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
               } focus-visible-ring`}
               role="tab"
               aria-selected={activeTab === "hashtags"}
@@ -409,11 +438,14 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                   {sortOptions.map((option) => (
                     <button
                       key={option.key}
-                      onClick={() => setSortOrder(option.key)}
-                      className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 border leading-none ${
+                      onClick={() => {
+                        setSortOrder(option.key)
+                        haptic.light()
+                      }}
+                      className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
                         sortOrder === option.key
                           ? "bg-white text-black border-white shadow-sm"
-                          : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white"
+                          : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
                       } focus-visible-ring`}
                       role="radio"
                       aria-checked={sortOrder === option.key}
@@ -436,8 +468,11 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                     {normalizedQuery.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setSearchQuery("")}
-                        className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors focus-visible-ring"
+                        onClick={() => {
+                          setSearchQuery("")
+                          haptic.light()
+                        }}
+                        className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white active-scale tap-highlight-none transition-all duration-300 ease-out focus-visible-ring"
                         aria-label="Clear search"
                       >
                         Clear Search
@@ -448,8 +483,9 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                       onClick={() => {
                         setCategory("all")
                         setSortOrder("trending")
+                        haptic.light()
                       }}
-                      className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors focus-visible-ring"
+                      className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white active-scale tap-highlight-none transition-all duration-300 ease-out focus-visible-ring"
                       aria-label="Reset filters"
                     >
                       Reset Filters
@@ -461,13 +497,17 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                   {sortedPosts.slice(0, 12).map((post) => (
                     <div key={post.id} role="listitem">
                       <div
-                        className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
-                        onClick={() => onSelectPost(post.id)}
+                        className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden group cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
+                        onClick={() => {
+                          haptic.light()
+                          onSelectPost(post.id)
+                        }}
                         role="button"
                         tabIndex={0}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault()
+                            haptic.light()
                             onSelectPost(post.id)
                           }
                         }}
@@ -494,7 +534,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-10 h-10 bg-black/40 rounded-full flex items-center justify-center" aria-hidden="true">
+                          <div className="w-10 h-10 bg-black/40 rounded-full flex items-center justify-center transition-transform duration-200 group-hover:scale-110" aria-hidden="true">
                             <Play size={18} className="text-white" />
                           </div>
                         </div>
@@ -528,8 +568,9 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                     onClick={() => {
                       setCategory("all")
                       setSortOrder("trending")
+                      haptic.light()
                     }}
-                    className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white transition-colors focus-visible-ring"
+                    className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white active-scale tap-highlight-none transition-all duration-300 ease-out focus-visible-ring"
                     aria-label="Reset filters"
                   >
                     Reset Filters
@@ -592,8 +633,11 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                         </div>
                       </div>
                       <button
-                        className="text-gray-400 hover:text-white transition-colors"
-                        onClick={() => setCategory(categoryItem.value)}
+                        className="text-gray-400 hover:text-white transition-all duration-200 ease-out active-scale tap-highlight-none"
+                        onClick={() => {
+                          setCategory(categoryItem.value)
+                          haptic.light()
+                        }}
                       >
                         <TrendingUp size={20} />
                       </button>
@@ -673,6 +717,7 @@ function MiniProfileSheet({
       ? "bg-white/10 text-white"
       : "bg-white text-black hover:bg-gray-200"
     : "bg-white text-black"
+  const haptic = useHapticFeedback()
 
   const topPosts = useMemo(() => {
     return posts
@@ -683,13 +728,16 @@ function MiniProfileSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-4 pb-4"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-4 pb-4 animate-in fade-in duration-300"
+      onClick={() => {
+        haptic.light()
+        onClose()
+      }}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-full max-w-md rounded-3xl bg-gray-900 p-5 shadow-xl"
+        className="w-full max-w-md rounded-3xl bg-gray-900 p-5 shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -702,8 +750,11 @@ function MiniProfileSheet({
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="rounded-full bg-gray-800 p-2 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+            onClick={() => {
+              haptic.light()
+              onClose()
+            }}
+            className="rounded-full bg-gray-800 p-2 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white active-scale tap-highlight-none focus-visible-ring"
           >
             ×
           </button>
@@ -734,12 +785,14 @@ function MiniProfileSheet({
             onClick={() => {
               if (!canFollow) {
                 onRequestAuth?.()
+                haptic.light()
                 return
               }
               onToggleFollow()
+              haptic.medium()
             }}
             disabled={followDisabled || (!canFollow && !onRequestAuth)}
-            className={`mt-4 w-full rounded-full py-2 text-sm font-semibold transition-colors ${followClasses} ${
+            className={`mt-4 w-full rounded-full py-2 text-sm font-semibold active-scale tap-highlight-none transition-all duration-300 ease-out ${followClasses} ${
               followDisabled || (!canFollow && !onRequestAuth) ? "cursor-not-allowed opacity-60" : ""
             }`}
           >
@@ -762,8 +815,11 @@ function MiniProfileSheet({
                 <button
                   key={post.id}
                   type="button"
-                  onClick={() => onSelectPost(post.id)}
-                  className="relative aspect-[3/4] overflow-hidden rounded-lg border border-gray-800 bg-gray-800"
+                  onClick={() => {
+                    haptic.light()
+                    onSelectPost(post.id)
+                  }}
+                  className="relative aspect-[3/4] overflow-hidden rounded-lg border border-gray-800 bg-gray-800 hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
                 >
                   {post.thumbnailURL ? (
                     <Image

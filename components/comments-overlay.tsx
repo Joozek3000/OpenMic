@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { X, Trash2, MessageCircle } from "lucide-react"
 import Image from "next/image"
 
@@ -12,6 +12,7 @@ import { useDisplayName } from "@/hooks/use-display-name"
 import { useToast } from "@/components/toast-provider"
 import { CommentItemSkeleton } from "@/components/skeletons"
 import { useFocusTrap } from "@/hooks/use-focus-trap"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 
 interface CommentsOverlayProps {
   postId: string
@@ -30,9 +31,10 @@ interface CommentItemProps {
 function CommentItem({ comment, canDelete, onDelete, deleting }: CommentItemProps) {
   const displayName = useDisplayName(comment.userId) ?? "Anonymous"
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || comment.userId), [displayName, comment.userId])
+  const haptic = useHapticFeedback()
 
   return (
-    <div className="flex gap-3" role="listitem">
+    <div className="flex gap-3 animate-in fade-in slide-in-from-left-2 duration-300" role="listitem">
       <Image src={avatar} alt={displayName} width={32} height={32} className="rounded-full flex-shrink-0" />
       <div className="flex-1">
         <div className="flex items-center gap-2 mb-1">
@@ -40,9 +42,12 @@ function CommentItem({ comment, canDelete, onDelete, deleting }: CommentItemProp
           <span className="text-gray-400 text-xs">{formatRelativeTimestamp(comment.timestamp)}</span>
           {canDelete && (
             <button
-              onClick={() => onDelete(comment.id)}
+              onClick={() => {
+                haptic.light()
+                onDelete(comment.id)
+              }}
               disabled={deleting}
-              className="ml-auto text-gray-400 hover:text-red-400 text-xs disabled:opacity-50 focus-visible-ring"
+              className="ml-auto text-gray-400 hover:text-red-400 text-xs disabled:opacity-50 active-scale tap-highlight-none focus-visible-ring"
               aria-label="Delete comment"
             >
               <Trash2 size={14} />
@@ -65,6 +70,16 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
   const { showToast } = useToast()
   const overlayRef = useRef<HTMLDivElement>(null)
+  const haptic = useHapticFeedback()
+  const [isClosing, setIsClosing] = useState(false)
+
+  const closeOverlay = useCallback(() => {
+    if (isClosing) return
+    setIsClosing(true)
+    setTimeout(() => {
+      onClose()
+    }, 200)
+  }, [isClosing, onClose])
 
   useEffect(() => {
     const unsubscribe = listenToComments(
@@ -96,6 +111,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
     try {
       await addComment({ postId, text: newComment.trim(), userId: user.uid })
       setNewComment("")
+      haptic.medium()
     } catch (submitError) {
       console.error("Failed to add comment", submitError)
       const message = getErrorMessage(submitError)
@@ -132,26 +148,45 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
-      onClose()
+      closeOverlay()
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onKeyDown={handleKeyDown}>
+    <div
+      className={`fixed inset-0 bg-black/50 z-50 flex items-end ${
+        isClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-300"
+      }`}
+      onKeyDown={handleKeyDown}
+      onClick={() => {
+        if (isClosing) return
+        haptic.light()
+        closeOverlay()
+      }}
+    >
       <div
         ref={overlayRef}
-        className="bg-gray-900 w-full h-2/3 rounded-t-3xl animate-in slide-in-from-bottom duration-300 flex flex-col focus-visible-ring"
+        className={`bg-gray-900 w-full h-2/3 rounded-t-3xl flex flex-col focus-visible-ring ${
+          isClosing
+            ? "animate-out fade-out slide-out-to-bottom duration-200"
+            : "animate-in fade-in slide-in-from-bottom-4 duration-300"
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="comments-title"
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <h3 id="comments-title" className="text-white font-semibold text-lg">
             Comments
           </h3>
           <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-700 transition-colors focus-visible-ring"
+            onClick={() => {
+              if (isClosing) return
+              haptic.light()
+              closeOverlay()
+            }}
+            className="p-2 rounded-full hover:bg-gray-700 transition-colors active-scale tap-highlight-none focus-visible-ring"
             aria-label="Close comments"
           >
             <X size={20} className="text-white" />
@@ -217,6 +252,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()
+                    haptic.light()
                     void handleSubmit()
                   }
                 }}
@@ -228,9 +264,13 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
                 aria-invalid={error ? "true" : "false"}
               />
               <button
-                onClick={handleSubmit}
+                onClick={() => {
+                  if (disableActions || posting || !newComment.trim()) return
+                  haptic.light()
+                  void handleSubmit()
+                }}
                 disabled={disableActions || posting || !newComment.trim()}
-                className="px-4 py-2 bg-white text-black rounded-full text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors focus-visible-ring"
+                className="px-4 py-2 bg-white text-black rounded-full text-sm font-semibold active-scale tap-highlight-none disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-all duration-200 ease-out focus-visible-ring"
                 aria-label={posting ? "Posting comment" : "Post comment"}
               >
                 {posting ? "Posting" : "Post"}

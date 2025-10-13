@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Settings, Grid, Heart, UserPlus, Save, X } from "lucide-react"
 import Image from "next/image"
 
@@ -13,6 +13,7 @@ import { useToast } from "@/components/toast-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
 import { useFocusTrap } from "@/hooks/use-focus-trap"
+import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 
 interface ProfilePageProps {
   onSelectPost: (postId: string) => void
@@ -31,9 +32,12 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
   const [feedbackVariant, setFeedbackVariant] = useState<"success" | "error">("success")
   const [showSettings, setShowSettings] = useState(false)
   const { showToast } = useToast()
+  const haptic = useHapticFeedback()
   const stageNameHintId = "stage-name-hint"
   const stageNameCountId = "stage-name-count"
   const stageNameMaxLength = 40
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false)
+  const [copySuccess, setCopySuccess] = useState(false)
 
   useEffect(() => {
     if (savedDisplayName) {
@@ -64,7 +68,10 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
     return posts.filter((post) => post.likes?.includes(user.uid))
   }, [posts, user])
 
-  const avatar = useMemo(() => buildAvatarPlaceholder(displayName || user?.uid ?? "guest"), [displayName, user?.uid])
+  const avatar = useMemo(
+    () => buildAvatarPlaceholder((displayName || user?.uid) ?? "guest"),
+    [displayName, user?.uid],
+  )
   const isAnonymous = !user || user.isAnonymous
 
   const handleSave = async () => {
@@ -76,6 +83,9 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
       setFeedback("Stage name saved")
       setFeedbackVariant("success")
       showToast("Stage name saved", "success")
+      haptic.medium()
+      setShowSaveSuccess(true)
+      setTimeout(() => setShowSaveSuccess(false), 800)
     } catch (error) {
       console.error("Failed to update display name", error)
       if (error instanceof DisplayNameUnavailableError) {
@@ -88,6 +98,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
         setFeedbackVariant("error")
         showToast(message, "error")
       }
+      setShowSaveSuccess(false)
     } finally {
       setIsSaving(false)
       setTimeout(() => {
@@ -117,12 +128,16 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
       setFeedback("Profile link copied")
       setFeedbackVariant("success")
       showToast("Profile link copied", "success")
+      haptic.light()
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 700)
       setTimeout(() => setFeedback(null), 2000)
     } catch (error) {
       console.error("Failed to copy profile link", error)
       setFeedback("Unable to copy link")
       setFeedbackVariant("error")
       showToast("Unable to copy link", "error")
+      setCopySuccess(false)
     }
   }
 
@@ -135,16 +150,22 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
             {user?.isAnonymous && (
               <button
                 type="button"
-                onClick={onRequestAuth}
-                className="inline-flex items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-gray-200 focus-visible-ring"
+                onClick={() => {
+                  haptic.light()
+                  onRequestAuth()
+                }}
+                className="inline-flex items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black active-scale tap-highlight-none transition-all duration-300 ease-out hover:bg-gray-200 hover:scale-102 focus-visible-ring"
                 aria-label="Sign in to save your profile"
               >
                 Sign in
               </button>
             )}
             <button
-              onClick={() => setShowSettings(true)}
-              className="p-2 hover:bg-gray-800 rounded-full transition-colors focus-visible-ring"
+              onClick={() => {
+                haptic.light()
+                setShowSettings(true)
+              }}
+              className="p-2 hover:bg-gray-800 rounded-full active-scale tap-highlight-none transition-all duration-200 ease-out focus-visible-ring"
               aria-label="Open playback settings"
             >
               <Settings size={24} />
@@ -197,7 +218,9 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
                   setDisplayName(sanitized)
                 }}
                 maxLength={stageNameMaxLength}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20 focus-visible-ring"
+                className={`w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-white/20 focus-visible-ring transition-all duration-200 ${
+                  showSaveSuccess ? "ring-2 ring-emerald-400/50" : ""
+                }`}
                 aria-label="Stage name"
                 aria-describedby={`${stageNameHintId} ${stageNameCountId}`}
               />
@@ -217,7 +240,9 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               <button
                 onClick={handleSave}
                 disabled={isSaving || !displayName.trim()}
-                className="flex-1 py-2 px-4 rounded-lg font-semibold transition-colors bg-white text-black disabled:opacity-50 disabled:cursor-not-allowed focus-visible-ring"
+                className={`flex-1 py-2 px-4 rounded-lg font-semibold bg-white text-black active-scale tap-highlight-none transition-all duration-300 ease-out disabled:opacity-50 disabled:cursor-not-allowed focus-visible-ring ${
+                  showSaveSuccess ? "animate-bounce-subtle" : ""
+                }`}
                 aria-label={isSaving ? "Saving stage name" : "Save stage name"}
               >
                 <div className="flex items-center justify-center gap-2">
@@ -227,7 +252,9 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               </button>
               <button
                 onClick={handleCopyProfile}
-                className="px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors focus-visible-ring"
+                className={`px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 active-scale tap-highlight-none transition-all duration-200 ease-out focus-visible-ring ${
+                  copySuccess ? "animate-bounce-subtle" : ""
+                }`}
                 aria-label="Copy profile link"
               >
                 <UserPlus size={20} />
@@ -240,9 +267,10 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
                     console.error("Failed to log out", error)
                     showToast(getErrorMessage(error), "error")
                   })
+                  haptic.light()
                 }}
                 disabled={authLoading}
-                className="w-full rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60 focus-visible-ring"
+                className="w-full rounded-lg border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 active-scale tap-highlight-none transition-all duration-200 ease-out hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60 focus-visible-ring"
                 aria-label={authLoading ? "Signing out" : "Sign out"}
               >
                 {authLoading ? "Signing out…" : "Sign out"}
@@ -259,8 +287,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
         <div className="border-b border-gray-800" role="tablist" aria-label="Profile tabs">
           <div className="flex">
             <button
-              onClick={() => setActiveTab("videos")}
-              className={`flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${
+              onClick={() => {
+                setActiveTab("videos")
+                haptic.light()
+              }}
+              className={`flex-1 py-3 flex items-center justify-center gap-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
                 activeTab === "videos" ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
               } focus-visible-ring`}
               role="tab"
@@ -271,8 +302,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               <span className="font-medium">Sets</span>
             </button>
             <button
-              onClick={() => setActiveTab("liked")}
-              className={`flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${
+              onClick={() => {
+                setActiveTab("liked")
+                haptic.light()
+              }}
+              className={`flex-1 py-3 flex items-center justify-center gap-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
                 activeTab === "liked" ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
               } focus-visible-ring`}
               role="tab"
@@ -306,10 +340,16 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
                 </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    isAnonymous ? onRequestAuth() : onNavigateToTab?.("upload")
-                  }
-                  className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+                  onClick={() => {
+                    if (isAnonymous) {
+                      haptic.light()
+                      onRequestAuth()
+                    } else {
+                      haptic.light()
+                      onNavigateToTab?.("upload")
+                    }
+                  }}
+                  className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 active-scale tap-highlight-none transition-all duration-300 ease-out"
                 >
                   {isAnonymous ? "Sign In to Upload" : "Upload a Set"}
                 </button>
@@ -319,8 +359,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
                 {userPosts.map((post) => (
                   <div
                     key={post.id}
-                    className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer"
-                    onClick={() => onSelectPost(post.id)}
+                    className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
+                    onClick={() => {
+                      haptic.light()
+                      onSelectPost(post.id)
+                    }}
                   >
                     {post.thumbnailURL ? (
                       <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
@@ -353,8 +396,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               </div>
               <button
                 type="button"
-                onClick={() => onNavigateToTab?.("home")}
-                className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 transition-colors"
+                onClick={() => {
+                  haptic.light()
+                  onNavigateToTab?.("home")
+                }}
+                className="inline-flex items-center justify-center bg-white text-black rounded-full px-6 py-3 font-semibold hover:bg-gray-200 active-scale tap-highlight-none transition-all duration-300 ease-out"
               >
                 Discover Sets
               </button>
@@ -364,8 +410,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               {likedPosts.map((post) => (
                 <div
                   key={post.id}
-                  className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer"
-                  onClick={() => onSelectPost(post.id)}
+                  className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
+                  onClick={() => {
+                    haptic.light()
+                    onSelectPost(post.id)
+                  }}
                 >
                   {post.thumbnailURL ? (
                     <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
@@ -397,8 +446,18 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
   const { preferences, setPreference, reset } = usePlaybackSettings()
   const sheetRef = useRef<HTMLDivElement>(null)
   const descriptionId = "settings-description"
+  const haptic = useHapticFeedback()
+  const [isClosing, setIsClosing] = useState(false)
 
   useFocusTrap(sheetRef, true)
+
+  const closeSheet = useCallback(() => {
+    if (isClosing) return
+    setIsClosing(true)
+    setTimeout(() => {
+      onClose()
+    }, 200)
+  }, [isClosing, onClose])
 
   useEffect(() => {
     const firstFocusable = sheetRef.current?.querySelector<HTMLElement>(
@@ -409,20 +468,33 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
-      onClose()
+      closeSheet()
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onKeyDown={handleKeyDown}>
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 ${
+        isClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-300"
+      }`}
+      onKeyDown={handleKeyDown}
+      onClick={() => {
+        if (isClosing) return
+        haptic.light()
+        closeSheet()
+      }}
+    >
       <div
         ref={sheetRef}
-        className="w-full max-w-md rounded-2xl bg-gray-900 p-6 shadow-lg focus-visible-ring"
+        className={`w-full max-w-md rounded-2xl bg-gray-900 p-6 shadow-lg focus-visible-ring ${
+          isClosing ? "animate-out fade-out scale-out duration-200" : "animate-in fade-in scale-in duration-300"
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
         aria-describedby={descriptionId}
         tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -434,8 +506,12 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
             </p>
           </div>
           <button
-            onClick={onClose}
-            className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white focus-visible-ring"
+            onClick={() => {
+              if (isClosing) return
+              haptic.light()
+              closeSheet()
+            }}
+            className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white active-scale tap-highlight-none focus-visible-ring"
             type="button"
             aria-label="Close settings"
           >
@@ -466,16 +542,23 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
 
         <div className="mt-6 flex items-center justify-between text-sm text-gray-400">
           <button
-            onClick={reset}
-            className="underline underline-offset-4 hover:text-white focus-visible-ring"
+            onClick={() => {
+              reset()
+              haptic.light()
+            }}
+            className="underline underline-offset-4 hover:text-white active-scale tap-highlight-none transition-colors focus-visible-ring"
             type="button"
             aria-label="Reset to default settings"
           >
             Reset defaults
           </button>
           <button
-            onClick={onClose}
-            className="rounded-lg bg-white px-4 py-2 font-semibold text-black hover:bg-gray-200 focus-visible-ring"
+            onClick={() => {
+              if (isClosing) return
+              haptic.light()
+              closeSheet()
+            }}
+            className="rounded-lg bg-white px-4 py-2 font-semibold text-black hover:bg-gray-200 active-scale tap-highlight-none transition-all duration-200 ease-out focus-visible-ring"
             type="button"
             aria-label="Close settings"
           >
@@ -495,11 +578,15 @@ interface SettingToggleProps {
 }
 
 function SettingToggle({ label, description, active, onToggle }: SettingToggleProps) {
+  const haptic = useHapticFeedback()
   return (
     <button
       type="button"
-      onClick={onToggle}
-      className="flex w-full items-center justify-between rounded-xl border border-gray-800 bg-gray-900 p-4 text-left transition-colors hover:border-gray-700 hover:bg-gray-800 focus-visible-ring"
+      onClick={() => {
+        haptic.light()
+        onToggle()
+      }}
+      className="flex w-full items-center justify-between rounded-xl border border-gray-800 bg-gray-900 p-4 text-left active-scale tap-highlight-none transition-all duration-300 ease-out hover:border-gray-700 hover:bg-gray-800 focus-visible-ring"
       role="switch"
       aria-checked={active}
       aria-label={label}
@@ -509,12 +596,12 @@ function SettingToggle({ label, description, active, onToggle }: SettingTogglePr
         <p className="text-xs text-gray-400">{description}</p>
       </div>
       <span
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200 ease-out ${
           active ? "bg-emerald-500" : "bg-gray-600"
         }`}
       >
         <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform duration-200 ease-out ${
             active ? "translate-x-5" : "translate-x-1"
           }`}
         />

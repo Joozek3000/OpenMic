@@ -15,6 +15,15 @@ export interface ToastContextValue {
   dismissToast: (id: string) => void
 }
 
+export type ConnectionStatus = "online" | "offline" | "connecting" | "retrying" | "error"
+
+export interface ConnectionInfo {
+  status: ConnectionStatus
+  message?: string
+  retryCount?: number
+  maxRetries?: number
+}
+
 export class AppError extends Error {
   code: string
   retryable: boolean
@@ -111,4 +120,15 @@ export interface DisplayPost extends Post {
   likeCount: number
   likedByCurrentUser: boolean
   authorDisplayName: string
+}
+
+export interface PostsContextValue {
+  posts: Post[]
+  loading: boolean
+  error?: string
+  connectionStatus: ConnectionStatus
+  connectionInfo?: ConnectionInfo
+  loadMorePosts: () => Promise<void>
+  hasMore: boolean
+  loadingMore: boolean
 }
