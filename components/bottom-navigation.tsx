@@ -90,7 +90,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
   return (
     <nav
       className="bg-black border-t border-gray-800 px-2 pt-1"
-      style={{ paddingBottom: `calc(0.9rem + env(safe-area-inset-bottom, 0px))` }}
+      style={{ paddingBottom: `calc(0.9rem + env(safe-area-inset-bottom, 0px))` }}      
       role="navigation"
       aria-label="Main navigation"
     >

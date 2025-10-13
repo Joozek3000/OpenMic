@@ -140,6 +140,9 @@ export default function VideoCard({
           }
 
           const support = canAutoplay()
+          if (support.blocked) {
+            setShowPlayOverlay(true)
+          }
           if (autoplayGlobals.autoplayBlocked) {
             setShowPlayOverlay(true)
           }
@@ -149,12 +152,8 @@ export default function VideoCard({
             onViewed?.()
           }
 
-          const initialMuted = support.withSound ? isMutedRef.current : true
-          videoElement.muted = initialMuted
-          if (initialMuted !== isMutedRef.current) {
-            isMutedRef.current = initialMuted
-            setIsMuted(initialMuted)
-          }
+          const desiredMuted = isMutedRef.current
+          videoElement.muted = desiredMuted
 
           void videoElement
             .play()
@@ -163,21 +162,21 @@ export default function VideoCard({
               setShowPlayOverlay(false)
               autoplayGlobals.autoplayBlocked = false
             })
-              .catch((error) => {
-                if (isAbortError(error)) {
-                  return
+            .catch((error) => {
+              if (isAbortError(error)) {
+                return
+              }
+
+              const isPermissionError =
+                error instanceof DOMException &&
+                (error.name === "NotAllowedError" || error.name === "AbortError")
+
+              if (!desiredMuted) {
+                if (!isPermissionError) {
+                  console.warn("Autoplay with sound blocked; reverting to muted", error)
                 }
-
-                const isPermissionError =
-                  error instanceof DOMException &&
-                  (error.name === "NotAllowedError" || error.name === "AbortError")
-
-                if (!initialMuted) {
-                  if (!isPermissionError) {
-                    console.warn("Autoplay with sound blocked; reverting to muted", error)
-                  }
-                  videoElement.muted = true
-                  setIsMuted(true)
+                videoElement.muted = true
+                setIsMuted(true)
                   isMutedRef.current = true
                   void videoElement
                     .play()

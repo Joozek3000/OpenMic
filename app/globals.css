@@ -38,6 +38,9 @@ body {
   .tap-highlight-none {
     -webkit-tap-highlight-color: transparent;
   }
+  .pb-safe {
+    padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
+  }
   .pulse-ring::after {
     content: "";
     position: absolute;
