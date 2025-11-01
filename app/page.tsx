@@ -18,7 +18,7 @@ export default function Home() {
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, resetPassword } = useAuth()
 
   const handleSelectPost = (postId: string) => {
     setPendingPostId(postId)
@@ -91,6 +91,24 @@ export default function Home() {
           } catch (error) {
             console.error("Sign-up not yet implemented", error)
             setAuthError("Account creation failed. Please try again.")
+          } finally {
+            setAuthLoading(false)
+          }
+        }}
+        onResetPassword={async (email) => {
+          setAuthLoading(true)
+          setAuthError(null)
+          try {
+            const result = await resetPassword(email)
+            if (!result.success && result.message) {
+              setAuthError(result.message)
+            }
+            return result
+          } catch (error) {
+            console.error("Password reset request failed", error)
+            const message = "Unable to send reset link. Please try again."
+            setAuthError(message)
+            return { success: false, message }
           } finally {
             setAuthLoading(false)
           }

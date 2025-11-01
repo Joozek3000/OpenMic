@@ -119,6 +119,13 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                 haptic.light()
                 onTabChange(tab.id)
               }}
+              onKeyDown={(event) => {
+                if (event.key === " ") {
+                  // Block the native button behaviour so space doesn’t trigger navigation while preserving Enter support via the keyboard hook.
+                  event.preventDefault()
+                  event.stopPropagation()
+                }
+              }}
               className={`flex w-full flex-col items-center justify-center min-h-[48px] p-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
                 isUpload
                   ? "bg-white text-black rounded-lg px-4 py-2 hover:scale-105"

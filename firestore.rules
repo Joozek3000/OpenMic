@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Basic authentication helpers reused across rule sets.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isPostOwner(postData) {
+      return postData.userId is string && isOwner(postData.userId);
+    }
+
+    function isCommentOwner(commentData) {
+      return commentData.userId is string && isOwner(commentData.userId);
+    }
+
+    // Common field validation utilities for documents that include user entered text.
+    function optionalStringMax(map data, string field, int maxLength) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLength);
+    }
+
+    function requiredStringMax(map data, string field, int maxLength) {
+      return field in data && data[field] is string && data[field].size() > 0 && data[field].size() <= maxLength;
+    }
+
+    function matchesLowercase(map data, string sourceField, string lowerField) {
+      return !(sourceField in data) || (
+        lowerField in data &&
+        data[sourceField] is string &&
+        data[lowerField] is string &&
+        data[lowerField] == data[sourceField].lower()
+      );
+    }
+
+    // Posts collection with nested comments.
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated() && validatePostCreate();
+
+      allow update: if isAuthenticated() && isPostOwner(resource.data) && validatePostUpdate();
+
+      allow delete: if isAuthenticated() && isPostOwner(resource.data);
+
+      function validatePostCreate() {
+        return requiredStringMax(request.resource.data, "title", 100)
+          && requiredStringMax(request.resource.data, "videoURL", 600)
+          && requiredStringMax(request.resource.data, "userId", 128)
+          && requiredStringMax(request.resource.data, "category", 100)
+          && request.resource.data.timestamp is timestamp
+          && request.resource.data.userId == request.auth.uid
+          && optionalStringMax(request.resource.data, "description", 500)
+          && optionalStringMax(request.resource.data, "location", 200);
+      }
+
+      function validatePostUpdate() {
+        return request.resource.data.keys().hasAll(["title", "videoURL", "userId", "category", "timestamp"])
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.timestamp == resource.data.timestamp
+          && validatePostCreate();
+      }
+
+      // Nested comments behave like light-weight posts – readable by everyone, owned by the author.
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+
+        allow create: if isAuthenticated() && validateCommentCreate();
+
+        allow delete: if isAuthenticated() && isCommentOwner(resource.data);
+
+        allow update: if false; // Comments are immutable after creation to simplify moderation.
+
+        function validateCommentCreate() {
+          return requiredStringMax(request.resource.data, "content", 1000)
+            && requiredStringMax(request.resource.data, "userId", 128)
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.timestamp is timestamp;
+        }
+      }
+    }
+
+    // Users collection controls profile data (display names, following, etc.).
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isOwner(userId) && validateUserWrite();
+
+      allow update: if isOwner(userId) && validateUserWrite();
+
+      allow delete: if false; // Profile deletion is not supported – handled through account management flows.
+
+      function validateUserWrite() {
+        return matchesLowercase(request.resource.data, "displayName", "displayNameLower")
+          && optionalStringMax(request.resource.data, "displayName", 60)
+          && optionalStringMax(request.resource.data, "displayNameLower", 60)
+          && optionalStringMax(request.resource.data, "bio", 280)
+          && (!("following" in request.resource.data) || request.resource.data.following is list);
+      }
+    }
+  }
+}

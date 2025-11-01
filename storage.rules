@@ -1,0 +1,47 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Shared helpers keep rule logic readable and aligned with Firestore policy.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidSize(int maxBytes) {
+      return request.resource.size <= maxBytes;
+    }
+
+    function isVideoFile() {
+      return request.resource.contentType in ["video/mp4", "video/quicktime", "video/webm"];
+    }
+
+    function isImageFile() {
+      return request.resource.contentType == "image/jpeg";
+    }
+
+    // Videos uploaded through the app live under videos/{uuid}.{ext}.
+    match /videos/{videoId} {
+      allow read: if isAuthenticated();
+
+      allow write: if isAuthenticated()
+        && isValidSize(209715200) // 200 MB cap – mirrors MAX_VIDEO_BYTES.
+        && isVideoFile();
+
+      allow delete: if isAuthenticated();
+    }
+
+    // Generated thumbnails are stored under thumbnails/{uuid}.jpg.
+    match /thumbnails/{thumbnailId} {
+      allow read: if isAuthenticated();
+
+      allow write: if isAuthenticated()
+        && isValidSize(5242880) // 5 MB max to keep assets lightweight.
+        && isImageFile();
+
+      allow delete: if isAuthenticated();
+    }
+  }
+}

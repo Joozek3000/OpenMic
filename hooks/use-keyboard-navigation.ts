@@ -32,7 +32,30 @@ export function useKeyboardNavigation({
     const allowHorizontal = axis === "horizontal" || axis === "both"
     const allowVertical = axis === "vertical" || axis === "both"
 
+    const navigationalKeys = new Set(["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End", "Enter"])
+
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!navigationalKeys.has(event.key)) {
+        return
+      }
+
+      const isTypingElement = (element: Element | null): element is HTMLElement => {
+        if (!(element instanceof HTMLElement)) return false
+        if (element instanceof HTMLInputElement) return true
+        if (element instanceof HTMLTextAreaElement) return true
+        if (element instanceof HTMLSelectElement) return true
+        if (element.isContentEditable) return true
+        const role = element.getAttribute("role")
+        return role === "textbox" || role === "searchbox"
+      }
+
+      const target = event.target as Element | null
+      const activeElement = document.activeElement
+
+      if (isTypingElement(target) || isTypingElement(activeElement)) {
+        return
+      }
+
       const { onNext, onPrevious, onSelect, onFirst, onLast } = handlersRef.current
 
       switch (event.key) {
@@ -67,7 +90,6 @@ export function useKeyboardNavigation({
           }
           break
         case "Enter":
-        case " ":
           if (onSelect) {
             event.preventDefault()
             onSelect()

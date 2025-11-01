@@ -6,11 +6,14 @@ import {
   EmailAuthProvider,
   linkWithCredential,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInAnonymously,
   signInWithEmailAndPassword,
   signOut,
+  type ActionCodeSettings,
   type UserCredential,
 } from "firebase/auth"
+import type { FirebaseError } from "firebase/app"
 
 import { auth } from "@/lib/firebase"
 import { ensureUserProfile } from "@/lib/data/users"
@@ -24,6 +27,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -132,6 +136,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const resetPassword = useCallback(async (email: string) => {
+    setError(undefined)
+
+    const defaultMessage =
+      "If an account exists for that email, you'll receive a password reset link shortly."
+
+    try {
+      let actionSettings: ActionCodeSettings | undefined
+
+      if (typeof window !== "undefined") {
+        actionSettings = {
+          url: `${window.location.origin}/reset-password`,
+          handleCodeInApp: true,
+        }
+      }
+
+      await sendPasswordResetEmail(auth, email, actionSettings)
+      showToastExternal(defaultMessage, "success")
+      return { success: true, message: defaultMessage }
+    } catch (authError) {
+      console.error("Failed to send password reset email", authError)
+      const code = (authError as FirebaseError)?.code
+
+      if (code === "auth/user-not-found") {
+        showToastExternal(defaultMessage, "success")
+        return { success: true, message: defaultMessage }
+      }
+
+      const message = isNetworkError(authError)
+        ? "Network issue while sending reset link. Please try again."
+        : "Unable to send reset link right now. Please try again later."
+
+      setError(message)
+      showToastExternal(message, "error")
+      return { success: false, message }
+    }
+  }, [])
+
   useEffect(() => {
     if (!pendingCredential) return
 
@@ -173,8 +215,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       logout,
+      resetPassword,
     }),
-    [user, loading, error, signIn, signUp, logout],
+    [user, loading, error, signIn, signUp, logout, resetPassword],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

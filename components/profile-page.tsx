@@ -596,15 +596,11 @@ function SettingToggle({ label, description, active, onToggle }: SettingTogglePr
         <p className="text-xs text-gray-400">{description}</p>
       </div>
       <span
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200 ease-out ${
-          active ? "bg-emerald-500" : "bg-gray-600"
+        className={`inline-flex h-6 w-11 items-center rounded-full px-1 transition-colors duration-200 ease-out ${
+          active ? "bg-emerald-500 justify-end" : "bg-gray-600 justify-start"
         }`}
       >
-        <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform duration-200 ease-out ${
-            active ? "translate-x-5" : "translate-x-1"
-          }`}
-        />
+        <span className="h-5 w-5 rounded-full bg-white transition-transform duration-200 ease-out" />
       </span>
     </button>
   )

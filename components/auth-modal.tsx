@@ -9,18 +9,28 @@ interface AuthModalProps {
   onClose: () => void
   onSignIn: (email: string, password: string) => Promise<void> | void
   onSignUp: (email: string, password: string) => Promise<void> | void
+  onResetPassword: (email: string) => Promise<{ success: boolean; message?: string }>
   loading?: boolean
   error?: string | null
 }
 
-type AuthMode = "signin" | "signup"
+type AuthMode = "signin" | "signup" | "reset"
 
-export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, error }: AuthModalProps) {
+export function AuthModal({
+  open,
+  onClose,
+  onSignIn,
+  onSignUp,
+  onResetPassword,
+  loading = false,
+  error,
+}: AuthModalProps) {
   const [mode, setMode] = useState<AuthMode>("signin")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [localError, setLocalError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
@@ -33,6 +43,7 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
       setPassword("")
       setConfirmPassword("")
       setLocalError(null)
+      setSuccessMessage(null)
       setShowPassword(false)
       setShowConfirmPassword(false)
       setMode("signin")
@@ -58,8 +69,14 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setLocalError(null)
+    setSuccessMessage(null)
 
-    if (!email.trim() || !password.trim()) {
+    if (!email.trim()) {
+      setLocalError("Email is required.")
+      return
+    }
+
+    if (mode !== "reset" && !password.trim()) {
       setLocalError("Email and password are required.")
       return
     }
@@ -71,8 +88,17 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
 
     if (mode === "signin") {
       await onSignIn(email.trim(), password)
-    } else {
+    } else if (mode === "signup") {
       await onSignUp(email.trim(), password)
+    } else {
+      const result = await onResetPassword(email.trim())
+      if (result.success) {
+        setSuccessMessage(result.message ?? "Check your email for a reset link.")
+        setPassword("")
+        setConfirmPassword("")
+      } else if (result.message) {
+        setLocalError(result.message)
+      }
     }
   }
 
@@ -91,10 +117,16 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
       >
         <div className="mb-4 text-center">
           <h2 id="auth-modal-title" className="text-xl font-semibold text-white">
-            {mode === "signin" ? "Sign in to OpenMic" : "Create your OpenMic account"}
+            {mode === "signin"
+              ? "Sign in to OpenMic"
+              : mode === "signup"
+              ? "Create your OpenMic account"
+              : "Reset your password"}
           </h2>
           <p className="mt-2 text-sm text-gray-400">
-            Save your stage name, follow comics, and keep your sets synced across devices.
+            {mode === "reset"
+              ? "Enter your email and we'll send a password reset link if an account exists."
+              : "Save your stage name, follow comics, and keep your sets synced across devices."}
           </p>
         </div>
 
@@ -112,29 +144,31 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
               aria-invalid={localError ? "true" : "false"}
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">Password</label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 pr-12 text-white focus:border-white focus:outline-none focus-visible-ring"
-                placeholder="••••••••"
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                aria-required="true"
-                aria-invalid={localError ? "true" : "false"}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-xs font-medium uppercase tracking-wide text-gray-400 hover:text-white focus-visible-ring"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
+          {mode !== "reset" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 pr-12 text-white focus:border-white focus:outline-none focus-visible-ring"
+                  placeholder="••••••••"
+                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                  aria-required="true"
+                  aria-invalid={localError ? "true" : "false"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-xs font-medium uppercase tracking-wide text-gray-400 hover:text-white focus-visible-ring"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           {mode === "signup" && (
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-400">Confirm password</label>
@@ -166,27 +200,80 @@ export function AuthModal({ open, onClose, onSignIn, onSignUp, loading = false, 
               {localError ?? error}
             </p>
           )}
+          {successMessage && (
+            <p className="text-sm text-emerald-400" role="status">
+              {successMessage}
+            </p>
+          )}
 
           <button
             type="submit"
             disabled={loading}
             className="w-full rounded-lg bg-white py-2 text-sm font-semibold text-black transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 focus-visible-ring"
-            aria-label={loading ? "Working" : mode === "signin" ? "Sign in" : "Create account"}
+            aria-label={
+              loading
+                ? "Working"
+                : mode === "signin"
+                ? "Sign in"
+                : mode === "signup"
+                ? "Create account"
+                : "Send reset link"
+            }
             aria-busy={loading}
           >
-            {loading ? "Working…" : mode === "signin" ? "Sign in" : "Create account"}
+            {loading
+              ? "Working…"
+              : mode === "signin"
+              ? "Sign in"
+              : mode === "signup"
+              ? "Create account"
+              : "Send reset link"}
           </button>
         </form>
 
         <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
-          <button
-            onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-            className="underline underline-offset-4 hover:text-white focus-visible-ring"
-            type="button"
-            aria-label={mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
-          >
-            {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
-          </button>
+          <div className="flex flex-col items-start gap-2">
+            {mode !== "reset" && (
+              <button
+                onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+                className="underline underline-offset-4 hover:text-white focus-visible-ring"
+                type="button"
+                aria-label={mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
+              >
+                {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
+              </button>
+            )}
+            {mode === "signin" ? (
+              <button
+                onClick={() => {
+                  setMode("reset")
+                  setPassword("")
+                  setConfirmPassword("")
+                  setLocalError(null)
+                  setSuccessMessage(null)
+                }}
+                className="underline underline-offset-4 hover:text-white focus-visible-ring"
+                type="button"
+                aria-label="Forgot password"
+              >
+                Forgot password?
+              </button>
+            ) : null}
+            {mode === "reset" ? (
+              <button
+                onClick={() => {
+                  setMode("signin")
+                  setLocalError(null)
+                  setSuccessMessage(null)
+                }}
+                className="underline underline-offset-4 hover:text-white focus-visible-ring"
+                type="button"
+                aria-label="Back to sign in"
+              >
+                Back to sign in
+              </button>
+            ) : null}
+          </div>
           <button
             onClick={onClose}
             className="underline underline-offset-4 hover:text-white focus-visible-ring"
