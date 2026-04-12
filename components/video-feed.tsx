@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from "react"
@@ -46,29 +45,39 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   const { showToast } = useToast()
   const haptic = useHapticFeedback()
 
+  // UI state for comment overlay and per-post actions.
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [showComments, setShowComments] = useState(false)
+  // Optimistic state lets the heart count update immediately before the network call finishes.
   const [optimisticLikes, setOptimisticLikes] = useState<Record<string, LikeState>>({})
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
+  // Local comment counts cache avoids extra reads for already-loaded posts.
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null)
+  // Used to count a view once per card render, even if a user scrolls back and forth.
   const viewedPostsRef = useRef<Set<string>>(new Set())
   const [activeIndex, setActiveIndex] = useState<number>(0)
-  const [prefetchIndex, setPrefetchIndex] = useState<number>(-1)
+  // Hidden off-screen <video> used for preloading the next clip.
   const prefetchVideoRef = useRef<HTMLVideoElement | null>(null)
+  // Screen-reader announcement so keyboard/swipe navigation has audible context.
   const [announcement, setAnnouncement] = useState("")
+  // Infinite-scroll trigger element at bottom of feed.
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const disableActions = authLoading || !user
+  const showSkeletons = postsLoading && posts.length === 0
 
-  useImperativeHandle(ref, () => ({
-    scrollToPost: (postId: string) => {
-      const node = document.getElementById(`post-${postId}`)
-      if (node) {
-        node.scrollIntoView({ behavior: "smooth", block: "start" })
-      }
-    },
-  }))
+  const scrollToPostId = useCallback((postId: string) => {
+    // Exposed to parent tabs so "open post from map/search" can jump directly in feed.
+    const node = document.getElementById(`post-${postId}`)
+    if (!node) return false
+    node.scrollIntoView({ behavior: "smooth", block: "start" })
+    return true
+  }, [])
+
+  useImperativeHandle(ref, () => ({ scrollToPost: scrollToPostId }), [scrollToPostId])
 
   useEffect(() => {
+    // Keep optimistic like state aligned with latest server values whenever posts/user changes.
     if (!user?.uid) {
       setOptimisticLikes({})
       return
@@ -91,20 +100,15 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   }, [posts, user?.uid])
 
   useEffect(() => {
+    // Show temporary "copied" state after share action succeeds.
     if (!copiedPostId) return
     const timeout = setTimeout(() => setCopiedPostId(null), 2000)
     return () => clearTimeout(timeout)
   }, [copiedPostId])
 
   useEffect(() => {
-    if (posts.length === 0) return
-    const nextIndex = activeIndex + 1
-    if (nextIndex < posts.length) {
-      setPrefetchIndex(nextIndex)
-    }
-  }, [activeIndex, posts.length])
-
-  useEffect(() => {
+    // Preload next video for smoother swipe/scroll playback.
+    const prefetchIndex = activeIndex + 1
     const videoElement = prefetchVideoRef.current
     if (!videoElement) {
       return
@@ -118,9 +122,10 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
 
     videoElement.src = posts[prefetchIndex].videoURL
     videoElement.load()
-  }, [prefetchIndex, posts])
+  }, [activeIndex, posts])
 
   useEffect(() => {
+    // Seed comment counts from posts payload when available to avoid an extra query.
     const nextCounts: Record<string, number> = {}
     posts.forEach((post) => {
       if (typeof post.commentCount === "number") {
@@ -141,8 +146,13 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   }, [posts])
 
   useEffect(() => {
-    const missing = posts.filter((post) => typeof post.commentCount !== "number")
-    if (missing.length === 0) return
+    // Backfill only the posts that did not include commentCount from the main query.
+    const missing = posts.filter((post) => {
+      return typeof post.commentCount !== "number" && typeof commentCounts[post.id] !== "number"
+    })
+    if (missing.length === 0) {
+      return
+    }
 
     let cancelled = false
 
@@ -174,17 +184,12 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
     return () => {
       cancelled = true
     }
-  }, [posts])
+  }, [commentCounts, posts])
 
-  const handleCommentsOpen = (postId: string) => {
-    setSelectedPostId(postId)
-    setShowComments(true)
-  }
+  // Keep handlers tiny and stable where possible to reduce prop churn on child cards.
+  const handleCommentsOpen = (postId: string) => { setSelectedPostId(postId); setShowComments(true) }
 
-  const handleCommentsClose = () => {
-    setShowComments(false)
-    setSelectedPostId(null)
-  }
+  const handleCommentsClose = () => { setShowComments(false); setSelectedPostId(null) }
 
   const handleToggleLike = useCallback(
     async (post: Post) => {
@@ -199,6 +204,7 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
       const nextLiked = !currentState.liked
       const nextCount = Math.max(0, currentState.count + (nextLiked ? 1 : -1))
 
+      // Optimistic UI: apply immediately, then rollback if request fails.
       setOptimisticLikes((current) => ({
         ...current,
         [post.id]: { liked: nextLiked, count: nextCount, pending: true },
@@ -232,19 +238,19 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   const handleShare = useCallback(
     async (post: Post) => {
       try {
-        if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(post.videoURL)
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(post.videoURL)
         } else {
-        const textarea = document.createElement("textarea")
-        textarea.value = post.videoURL
-        textarea.style.position = "fixed"
-        textarea.style.left = "-9999px"
-        document.body.appendChild(textarea)
-        textarea.select()
-        document.execCommand("copy")
-        document.body.removeChild(textarea)
-      }
-      setCopiedPostId(post.id)
+          const textarea = document.createElement("textarea")
+          textarea.value = post.videoURL
+          textarea.style.position = "fixed"
+          textarea.style.left = "-9999px"
+          document.body.appendChild(textarea)
+          textarea.select()
+          document.execCommand("copy")
+          document.body.removeChild(textarea)
+        }
+        setCopiedPostId(post.id)
       } catch (shareError) {
         console.error("Failed to copy share link", shareError)
         setCopiedPostId(null)
@@ -257,6 +263,7 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
   const handleDelete = useCallback(
     async (post: Post) => {
       if (!user || user.uid !== post.userId) return
+      // Browser confirm is intentional here: fast guardrail with no custom modal complexity.
       const confirmed = window.confirm("Delete this set? This cannot be undone.")
       if (!confirmed) return
 
@@ -280,35 +287,28 @@ const VideoFeed = forwardRef<VideoFeedHandle, VideoFeedProps>(({ onNavigateToUpl
 
   const handleToggleFollow = useCallback(
     (targetUserId: string) => {
+      // Ignore self-follow and unauthenticated actions.
       if (!user || user.uid === targetUserId) return
       void toggleFollow(targetUserId)
     },
     [toggleFollow, user],
   )
 
-const derivedPosts = useMemo(() => posts, [posts])
-const disableActions = authLoading || !user
-
-const showSkeletons = postsLoading && derivedPosts.length === 0
-
   const scrollToIndex = useCallback(
     (index: number) => {
-      const target = derivedPosts[index]
-      if (!target) return
-      const node = document.getElementById(`post-${target.id}`)
-      if (node) {
-        node.scrollIntoView({ behavior: "smooth", block: "start" })
-        setActiveIndex(index)
-      }
+      // Scroll by post id so DOM order and filtered lists remain robust.
+      const target = posts[index]
+      if (target && scrollToPostId(target.id)) setActiveIndex(index)
     },
-    [derivedPosts],
+    [posts, scrollToPostId],
   )
 
   const swipeHandlers = useSwipeGesture({
     threshold: 80,
-    enabled: !showComments && derivedPosts.length > 0,
+    // Disable feed swipe while comments are open to avoid gesture conflicts.
+    enabled: !showComments && posts.length > 0,
     onSwipeUp: () => {
-      if (activeIndex >= derivedPosts.length - 1) return
+      if (activeIndex >= posts.length - 1) return
       scrollToIndex(activeIndex + 1)
       haptic.light()
     },
@@ -321,9 +321,10 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
 
   useKeyboardNavigation({
     axis: "vertical",
+    // Keyboard shortcuts are paused while modal-like overlays are visible.
     enabled: !showComments,
     onNext: () => {
-      const nextIndex = Math.min(activeIndex + 1, derivedPosts.length - 1)
+      const nextIndex = Math.min(activeIndex + 1, posts.length - 1)
       if (nextIndex !== activeIndex) {
         scrollToIndex(nextIndex)
       }
@@ -337,12 +338,10 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
   })
 
   useEffect(() => {
-    if (derivedPosts.length === 0) {
-      return
-    }
-    const current = derivedPosts[activeIndex]
-    setAnnouncement(`Now viewing ${current.title}`)
-  }, [activeIndex, derivedPosts])
+    // Announce currently focused post to assistive tech users.
+    const current = posts[activeIndex]
+    if (current) setAnnouncement(`Now viewing ${current.title}`)
+  }, [activeIndex, posts])
 
   useEffect(() => {
     const sentinel = sentinelRef.current
@@ -353,11 +352,11 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && !loadingMore) {
-            loadMorePosts().catch(() => {
-              // errors handled in provider
-            })
-          }
+          if (!entry.isIntersecting || loadingMore) return
+          // Provider owns request dedupe/retry/error messaging for pagination.
+          loadMorePosts().catch(() => {
+            // errors handled in provider
+          })
         })
       },
       { threshold: 0.1 },
@@ -383,7 +382,7 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
 
       {showSkeletons ? (
         Array.from({ length: 3 }).map((_, index) => <VideoCardSkeleton key={`video-skeleton-${index}`} />)
-      ) : derivedPosts.length === 0 && !postsLoading && !loadingMore ? (
+      ) : posts.length === 0 && !postsLoading && !loadingMore ? (
         <div className="flex h-full items-center justify-center px-6">
           <div className="flex flex-col items-center text-center gap-4 max-w-sm">
             <Upload size={72} className="text-gray-600" />
@@ -404,7 +403,8 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
           </div>
         </div>
       ) : (
-        derivedPosts.map((post) => {
+        posts.map((post, index) => {
+          // Prefer optimistic state for responsive likes; fallback to server payload.
           const likeState = optimisticLikes[post.id] ?? {
             liked: user ? post.likes?.includes(user.uid) ?? false : false,
             count: post.likes?.length ?? 0,
@@ -432,10 +432,7 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
                   console.error("Failed to increment view count", incrementError)
                   viewedPostsRef.current.delete(post.id)
                 })
-                const index = derivedPosts.findIndex((item) => item.id === post.id)
-                if (index >= 0) {
-                  setActiveIndex(index)
-                }
+                setActiveIndex(index)
               }}
               elementId={`post-${post.id}`}
               isFollowing={!!user && isFollowing(post.userId)}
@@ -464,6 +461,7 @@ const showSkeletons = postsLoading && derivedPosts.length === 0
       )}
       <video
         ref={prefetchVideoRef}
+        // Hidden element keeps browser cache warm for the next item.
         preload="metadata"
         style={{ display: "none" }}
       />

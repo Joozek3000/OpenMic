@@ -7,10 +7,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const withPWA = withPWAInit({
   dest: "public",
-  disable: process.env.NODE_ENV === "development",
+  // Keep PWA off by default until caching strategy is fully stabilized.
+  // Enable explicitly with NEXT_PUBLIC_ENABLE_PWA=true.
+  disable: process.env.NEXT_PUBLIC_ENABLE_PWA !== "true",
   register: true,
   skipWaiting: true,
   runtimeCaching: [
+    {
+      // Avoid stale/partial Mapbox tiles from SW cache (prevents checkerboard squares).
+      urlPattern: /^https:\/\/(api|events)\.mapbox\.com\/.*/,
+      handler: "NetworkOnly",
+    },
     {
       urlPattern: ({ request }) =>
         ["style", "script", "worker", "font"].includes(request.destination),

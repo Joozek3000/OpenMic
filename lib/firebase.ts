@@ -34,22 +34,26 @@ let dbInstance
 
 if (typeof window !== "undefined") {
   try {
+    // Long polling improves reliability on restrictive/mobile networks.
     dbInstance = initializeFirestore(app, {
       experimentalAutoDetectLongPolling: true,
       cacheSizeBytes: 40 * 1024 * 1024,
     })
   } catch {
+    // Fallback if Firestore was already initialized elsewhere.
     dbInstance = getFirestore(app)
   }
 
   void (async () => {
     try {
+      // Best experience: offline cache shared across tabs.
       await enableMultiTabIndexedDbPersistence(dbInstance)
       if (process.env.NODE_ENV !== "production") {
         console.info("Firestore persistence enabled (multi-tab)")
       }
     } catch (multiTabError) {
       try {
+        // Fallback when multi-tab lock cannot be acquired.
         await enableIndexedDbPersistence(dbInstance)
         if (process.env.NODE_ENV !== "production") {
           console.info("Firestore persistence enabled (single-tab)")

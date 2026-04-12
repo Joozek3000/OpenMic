@@ -7,6 +7,7 @@ import Image from "next/image"
 import { useToast } from "@/components/toast-provider"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
+import { useUserProfileLite } from "@/hooks/use-user-profile-lite"
 import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
 import type { Post } from "@/lib/types"
 import {
@@ -25,6 +26,7 @@ interface LikeState {
 }
 
 const autoplayGlobals = {
+  // Shared across all cards so we don't spam autoplay warnings as users swipe.
   lastWarningTime: 0,
   autoplayBlocked: false,
 }
@@ -68,9 +70,11 @@ export default function VideoCard({
   onToggleFollow,
   followDisabled = false,
 }: VideoCardProps) {
+  // Playback settings come from global user preferences (Profile -> Playback settings).
   const { preferences } = usePlaybackSettings()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const displayName = useDisplayName(post.userId) ?? "Anonymous Comedian"
+  const authorProfile = useUserProfileLite(post.userId)
   const { showToast } = useToast()
   const haptic = useHapticFeedback()
   const [videoError, setVideoError] = useState(false)
@@ -78,6 +82,7 @@ export default function VideoCard({
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPortrait, setIsPortrait] = useState(false)
   const [showPlayOverlay, setShowPlayOverlay] = useState(false)
+  // Prevent double counting views for the same card instance.
   const hasTrackedViewRef = useRef(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const observerOptionsRef = useRef<IntersectionObserverInit>({ threshold: 0.6 })
@@ -87,8 +92,12 @@ export default function VideoCard({
   const isAbortError = (error: unknown) => {
     return error instanceof DOMException && error.name === "AbortError"
   }
+  const isPermissionError = (error: unknown) => {
+    return error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "AbortError")
+  }
 
   const warnAutoplayBlocked = useCallback(() => {
+    // One warning per cooldown window to avoid noisy toasts when users scroll fast.
     const now = Date.now()
     if (now - autoplayGlobals.lastWarningTime < AUTOPLAY_WARNING_COOLDOWN) {
       autoplayGlobals.autoplayBlocked = true
@@ -105,14 +114,18 @@ export default function VideoCard({
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || post.userId), [displayName, post.userId])
   const relativeTime = useMemo(() => formatRelativeTimestamp(post.timestamp), [post.timestamp])
   const categoryLabel = useMemo(() => getCategoryLabel(post.category), [post.category])
+  const isOfficialAccount = authorProfile?.accountType === "editorial" || authorProfile?.isSeedAccount === true
+  const officialLabel = authorProfile?.officialLabel?.trim() || "Official OpenMic"
 
   useEffect(() => {
+    // Reset card-local playback state whenever we render a different post.
     hasTrackedViewRef.current = false
     setIsPortrait(false)
     setShowPlayOverlay(false)
   }, [post.id])
 
   useEffect(() => {
+    // Warm up autoplay capability check once per mount.
     void detectAutoplaySupport()
   }, [])
 
@@ -130,22 +143,19 @@ export default function VideoCard({
     const videoElement = videoRef.current
     if (!videoElement) return
 
+    // IntersectionObserver is the main autoplay trigger when a card becomes visible.
     const handleVisible = (entries: IntersectionObserverEntry[]) => {
       entries.forEach((entry) => {
         if (entry.target !== videoElement) return
 
         if (entry.isIntersecting) {
           if (!autoplayRef.current) {
+            // Respect global autoplay preference immediately.
             return
           }
 
           const support = canAutoplay()
-          if (support.blocked) {
-            setShowPlayOverlay(true)
-          }
-          if (autoplayGlobals.autoplayBlocked) {
-            setShowPlayOverlay(true)
-          }
+          if (support.blocked || autoplayGlobals.autoplayBlocked) setShowPlayOverlay(true)
 
           if (!hasTrackedViewRef.current) {
             hasTrackedViewRef.current = true
@@ -155,6 +165,7 @@ export default function VideoCard({
           const desiredMuted = isMutedRef.current
           videoElement.muted = desiredMuted
 
+          // Try to autoplay with current mute state first.
           void videoElement
             .play()
             .then(() => {
@@ -167,44 +178,38 @@ export default function VideoCard({
                 return
               }
 
-              const isPermissionError =
-                error instanceof DOMException &&
-                (error.name === "NotAllowedError" || error.name === "AbortError")
-
               if (!desiredMuted) {
-                if (!isPermissionError) {
+                // Common mobile browser flow: sound autoplay blocked, muted autoplay allowed.
+                if (!isPermissionError(error)) {
                   console.warn("Autoplay with sound blocked; reverting to muted", error)
                 }
                 videoElement.muted = true
                 setIsMuted(true)
-                  isMutedRef.current = true
-                  void videoElement
-                    .play()
-                    .then(() => {
-                      setIsPlaying(true)
-                      setShowPlayOverlay(false)
-                      autoplayGlobals.autoplayBlocked = false
-                    })
-                    .catch((err) => {
-                      if (isAbortError(err)) {
-                        return
-                      }
-                      const mutedPermissionError =
-                        err instanceof DOMException &&
-                        (err.name === "NotAllowedError" || err.name === "AbortError")
-                      if (!mutedPermissionError) {
-                        console.warn("Video playback failed", err)
-                      }
-                      warnAutoplayBlocked()
-                    })
-                } else {
-                  if (!isPermissionError) {
-                    console.warn("Video playback failed", error)
-                  }
-                  warnAutoplayBlocked()
+                isMutedRef.current = true
+                void videoElement
+                  .play()
+                  .then(() => {
+                    setIsPlaying(true)
+                    setShowPlayOverlay(false)
+                    autoplayGlobals.autoplayBlocked = false
+                  })
+                  .catch((err) => {
+                    if (isAbortError(err)) return
+                    if (!isPermissionError(err)) {
+                      console.warn("Video playback failed", err)
+                    }
+                    warnAutoplayBlocked()
+                  })
+              } else {
+                // Even muted autoplay failed; user interaction is required.
+                if (!isPermissionError(error)) {
+                  console.warn("Video playback failed", error)
                 }
+                warnAutoplayBlocked()
+              }
             })
         } else if (!videoElement.paused) {
+          // Pause off-screen videos to save battery/CPU and avoid overlapping audio.
           videoElement.pause()
           setIsPlaying(false)
         }
@@ -222,6 +227,7 @@ export default function VideoCard({
   }, [onViewed, warnAutoplayBlocked])
 
   useEffect(() => {
+    // Keep actual media element mute state synced with React state.
     const videoElement = videoRef.current
     if (!videoElement) return
     if (videoElement.muted !== isMuted) {
@@ -235,6 +241,7 @@ export default function VideoCard({
   }, [isMuted])
 
   useEffect(() => {
+    // If user disables autoplay globally, stop currently playing card.
     if (preferences.autoplay) return
     const videoElement = videoRef.current
     if (!videoElement) return
@@ -245,6 +252,7 @@ export default function VideoCard({
   }, [preferences.autoplay])
 
   useEffect(() => {
+    // Reflect global preference changes immediately.
     setIsMuted(preferences.startMuted)
   }, [preferences.startMuted])
 
@@ -271,12 +279,10 @@ export default function VideoCard({
                 isMutedRef.current = true
                 return
               }
-              const isPermissionError =
-                error instanceof DOMException &&
-                (error.name === "NotAllowedError" || error.name === "AbortError")
-              if (!isPermissionError) {
+              if (!isPermissionError(error)) {
                 console.warn("Unable to unmute automatically", error)
               }
+              // Revert UI to muted if browser denies playback-with-sound.
               videoElement.muted = true
               setIsMuted(true)
               warnAutoplayBlocked()
@@ -295,6 +301,7 @@ export default function VideoCard({
       role="article"
       aria-label={`Video by ${displayName}: ${post.title}`}
       onClick={() => {
+        // Card tap toggles play/pause; action buttons stopPropagation to avoid accidental toggles.
         const videoElement = videoRef.current
         if (!videoElement) return
         if (videoElement.paused) {
@@ -346,6 +353,7 @@ export default function VideoCard({
                 setShowPlayOverlay(false)
                 autoplayGlobals.autoplayBlocked = false
                 if (!hasTrackedViewRef.current) {
+                  // View fallback: count on first confirmed play if observer path missed it.
                   hasTrackedViewRef.current = true
                   onViewed?.()
                 }
@@ -399,6 +407,11 @@ export default function VideoCard({
                 @{displayName.replace(/\s+/g, "").toLowerCase() || "comedian"}
                 {isOwner && <CheckCircle size={16} className="text-blue-500 fill-current" />}
               </span>
+              {isOfficialAccount && (
+                <span className="inline-flex w-fit items-center rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/90">
+                  {officialLabel}
+                </span>
+              )}
               <span className="text-xs text-gray-300">{relativeTime}</span>
             </div>
             {!isOwner && (

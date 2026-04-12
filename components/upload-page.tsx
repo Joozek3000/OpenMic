@@ -35,6 +35,13 @@ export default function UploadPage() {
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null)
   const [isGeneratingThumb, setIsGeneratingThumb] = useState(false)
   const [videoDuration, setVideoDuration] = useState<number | null>(null)
+  const setFeedbackState = (
+    message: string | null,
+    tone: "neutral" | "warning" | "error" = "neutral",
+  ) => {
+    setFeedback(message)
+    setFeedbackTone(tone)
+  }
 
   useEffect(() => {
     // Clean up video preview URLs when the component unmounts or the file changes.
@@ -57,8 +64,7 @@ export default function UploadPage() {
   const extractThumbnail = async (file: File) => {
     setIsGeneratingThumb(true)
     try {
-      setFeedback("Generating optimized thumbnail…")
-      setFeedbackTone("warning")
+      setFeedbackState("Generating optimized thumbnail…", "warning")
 
       const video = document.createElement("video")
       const url = URL.createObjectURL(file)
@@ -81,8 +87,7 @@ export default function UploadPage() {
           if (prev) URL.revokeObjectURL(prev)
           return URL.createObjectURL(optimized)
         })
-        setFeedback(null)
-        setFeedbackTone("neutral")
+        setFeedbackState(null)
       } else {
         setThumbnailBlob(null)
         setThumbnailPreview((prev) => {
@@ -104,6 +109,7 @@ export default function UploadPage() {
   }
 
   const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    // This path validates file type/size/duration before we attempt any upload.
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -111,14 +117,12 @@ export default function UploadPage() {
     if (!validation.valid) {
       const message = validation.error ?? "Invalid video file."
       showToast(message, "error")
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       event.target.value = ""
       return
     }
 
-    setFeedback("Validating video…")
-    setFeedbackTone("warning")
+    setFeedbackState("Validating video…", "warning")
 
     try {
       const duration = await getVideoDuration(file)
@@ -126,8 +130,7 @@ export default function UploadPage() {
       if (!durationCheck.valid) {
         const message = durationCheck.error ?? "Video exceeds the maximum length."
         showToast(message, "error")
-        setFeedback(message)
-        setFeedbackTone("error")
+        setFeedbackState(message, "error")
         setVideoDuration(null)
         event.target.value = ""
         return
@@ -135,8 +138,7 @@ export default function UploadPage() {
 
       removeVideo()
       setVideoDuration(duration)
-      setFeedback(null)
-      setFeedbackTone("neutral")
+      setFeedbackState(null)
       setVideoFile(file)
       const url = URL.createObjectURL(file)
       setVideoPreview(url)
@@ -145,8 +147,7 @@ export default function UploadPage() {
       console.error("Failed to validate video", error)
       const message = getErrorMessage(error)
       showToast(message, "error")
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       setVideoDuration(null)
       event.target.value = ""
     }
@@ -175,6 +176,7 @@ export default function UploadPage() {
   }
 
   const handleSubmit = async () => {
+    // Upload flow order: video -> optional thumbnail -> Firestore post document.
     if (!user) {
       showToast("Please wait for sign-in before uploading.", "error")
       return
@@ -182,16 +184,14 @@ export default function UploadPage() {
 
     if (!videoFile) {
       const message = "Select a video before uploading."
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       showToast(message, "error")
       return
     }
 
     if (videoDuration === null) {
       const message = "Validating video duration…"
-      setFeedback(message)
-      setFeedbackTone("warning")
+      setFeedbackState(message, "warning")
       showToast(message, "info")
       return
     }
@@ -199,8 +199,7 @@ export default function UploadPage() {
     const durationCheck = validateVideoDuration(videoDuration, 180)
     if (!durationCheck.valid) {
       const message = durationCheck.error ?? "Video exceeds the maximum length."
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       showToast(message, "error")
       return
     }
@@ -208,8 +207,7 @@ export default function UploadPage() {
     const titleResult = sanitizeAndValidate(title, { minLength: 1, maxLength: 100, fieldName: "Title" })
     if (!titleResult.valid) {
       const message = titleResult.error ?? "Title is invalid."
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       showToast(message, "error")
       return
     }
@@ -221,15 +219,13 @@ export default function UploadPage() {
     })
     if (!descriptionResult.valid) {
       const message = descriptionResult.error ?? "Description is too long."
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       showToast(message, "error")
       return
     }
 
     setIsUploading(true)
-    setFeedback("Preparing upload…")
-    setFeedbackTone("warning")
+    setFeedbackState("Preparing upload…", "warning")
 
     let attempts = 0
     try {
@@ -239,7 +235,7 @@ export default function UploadPage() {
         async () => {
           attempts += 1
           if (attempts > 1) {
-            setFeedback(`Uploading… (attempt ${attempts}/${maxAttempts})`)
+            setFeedbackState(`Uploading… (attempt ${attempts}/${maxAttempts})`, "warning")
           }
           return uploadVideoFile(videoFile)
         },
@@ -269,14 +265,12 @@ export default function UploadPage() {
       })
 
       showToast("Stand-up clip uploaded!", "success")
-      setFeedback(null)
-      setFeedbackTone("neutral")
+      setFeedbackState(null)
       resetForm()
     } catch (error) {
       console.error("Failed to upload post", error)
       const message = getErrorMessage(error)
-      setFeedback(message)
-      setFeedbackTone("error")
+      setFeedbackState(message, "error")
       const attemptsUsed = attempts > 0 ? attempts : 1
       showToast(`${message}${attemptsUsed > 1 ? ` (after ${attemptsUsed} attempts)` : ""}`, "error")
     } finally {

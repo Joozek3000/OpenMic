@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Home, Search, Plus, Compass, User } from "lucide-react"
+import { Home, Search, Plus, MapPinned, User } from "lucide-react"
 
 import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation"
 import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
@@ -11,18 +11,15 @@ interface BottomNavigationProps {
   onTabChange: (tab: string) => void
 }
 
-export default function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
-  const tabs = useMemo(
-    () => [
-      { id: "home", icon: Home, label: "Home" },
-      { id: "search", icon: Search, label: "Search" },
-      { id: "upload", icon: Plus, label: "Upload" },
-      { id: "explore", icon: Compass, label: "Explore" },
-      { id: "profile", icon: User, label: "Profile" },
-    ],
-    [],
-  )
+const tabs = [
+  { id: "home", icon: Home, label: "Home" },
+  { id: "search", icon: Search, label: "Search" },
+  { id: "upload", icon: Plus, label: "Upload" },
+  { id: "map", icon: MapPinned, label: "Map" },
+  { id: "profile", icon: User, label: "Profile" },
+] as const
 
+export default function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
   const activeIndex = Math.max(
     0,
     tabs.findIndex((tab) => tab.id === activeTab),
@@ -76,7 +73,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
     if (!tab) return
     const button = document.querySelector<HTMLButtonElement>(`button[data-tab="${tab.id}"]`)
     button?.focus()
-  }, [focusedIndex, tabs])
+  }, [focusedIndex])
 
   const indicatorStyle = useMemo(() => {
     const width = 100 / tabs.length
@@ -85,7 +82,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
       width: `${width}%`,
       left: `${left}%`,
     }
-  }, [activeIndex, tabs.length])
+  }, [activeIndex])
 
   return (
     <nav
@@ -105,11 +102,10 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
           style={indicatorStyle}
           aria-hidden="true"
         />
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
           const isUpload = tab.id === "upload"
-          const index = tabs.indexOf(tab)
           const isFocused = focusedIndex === index
 
           return (

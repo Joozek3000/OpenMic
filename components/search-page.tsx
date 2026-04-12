@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { Search, TrendingUp, Hash, Play, Users, Clapperboard } from "lucide-react"
 import Image from "next/image"
 
@@ -22,6 +22,29 @@ interface SearchPageProps {
   onRequestAuth?: () => void
 }
 
+const SORT_OPTIONS: { key: SortOrder; label: string }[] = [
+  { key: "trending", label: "Trending" },
+  { key: "newest", label: "Newest" },
+  { key: "likes", label: "Most Liked" },
+]
+const SEARCH_TABS = [
+  { key: "trending", label: "Trending" },
+  { key: "users", label: "Comics" },
+  { key: "hashtags", label: "Tags" },
+] as const
+
+function getPreferredName(hint: string | undefined, fetched: string | null | undefined, fallback: string) {
+  const preferred = hint?.trim()
+  if (preferred) return preferred
+  const fetchedTrimmed = fetched?.trim()
+  if (fetchedTrimmed) return fetchedTrimmed
+  return fallback
+}
+
+function toHandle(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase()
+}
+
 interface SearchUserRowProps {
   userId: string
   sets: number
@@ -33,6 +56,8 @@ interface SearchUserRowProps {
   onOpenProfile: () => void
   onRequestAuth?: () => void
   displayNameHint?: string
+  currentUserId?: string
+  canFollowUsers: boolean
 }
 
 function SearchUserRow({
@@ -46,12 +71,12 @@ function SearchUserRow({
   onOpenProfile,
   onRequestAuth,
   displayNameHint,
+  currentUserId,
+  canFollowUsers,
 }: SearchUserRowProps) {
-  const { user } = useAuth()
-  const fetchedName = useDisplayName(userId)
-  const name = displayNameHint && displayNameHint.length > 0 ? displayNameHint : fetchedName ?? "Anonymous"
+  const name = getPreferredName(displayNameHint, null, "Anonymous")
   const avatar = useMemo(() => buildAvatarPlaceholder(name || userId), [name, userId])
-  const canFollow = !!user && !user.isAnonymous && user.uid !== userId
+  const canFollow = canFollowUsers && currentUserId !== userId
   const buttonLabel = canFollow ? (isFollowing ? "Following" : "Follow") : "Sign in"
   const buttonClasses = canFollow
     ? isFollowing
@@ -73,13 +98,13 @@ function SearchUserRow({
       >
         <Image src={avatar} alt={name} width={40} height={40} className="rounded-full" />
         <div>
-          <div className="font-semibold">@{name.replace(/\s+/g, "").toLowerCase()}</div>
+          <div className="font-semibold">@{toHandle(name)}</div>
           <div className="text-sm text-gray-400">
             {sets} {sets === 1 ? "set" : "sets"} · {formatLargeNumber(views)} views · {formatLargeNumber(likes)} laughs
           </div>
         </div>
       </button>
-      {user?.uid !== userId && (
+      {currentUserId !== userId && (
         <button
           onClick={() => {
             if (!canFollow) {
@@ -110,12 +135,17 @@ function SearchUserRow({
   )
 }
 
+const MemoizedSearchUserRow = memo(SearchUserRow)
+
 export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPageProps) {
+  const { user } = useAuth()
   const { posts, loading } = usePostsContext()
   const { category, setCategory, sortOrder, setSortOrder } = useFilters()
   const { isFollowing, toggleFollow, loading: followLoading } = useFollow()
+  // Raw input state + debounced query keep typing responsive while reducing filter churn.
   const [searchQuery, setSearchQuery] = useState("")
   const debouncedQuery = useDebouncedValue(searchQuery, 300)
+  // Top-level tab controls which section body (Trending / Comics / Tags) is visible.
   const [activeTab, setActiveTab] = useState("trending")
   const [selectedProfile, setSelectedProfile] = useState<
     | null
@@ -127,17 +157,38 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
         displayName?: string
       }
   >(null)
-  const sortOptions: { key: SortOrder; label: string }[] = [
-    { key: "trending", label: "Trending" },
-    { key: "newest", label: "Newest" },
-    { key: "likes", label: "Most Liked" },
-  ]
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({})
+  const loadingDisplayNameIdsRef = useRef<Set<string>>(new Set())
   const haptic = useHapticFeedback()
+  const setCategoryWithHaptic = (value: string) => {
+    setCategory(value)
+    haptic.light()
+  }
+  const setTabWithHaptic = (tab: string) => {
+    setActiveTab(tab)
+    haptic.light()
+  }
+  const resetFilters = () => {
+    setCategory("all")
+    setSortOrder("trending")
+    haptic.light()
+  }
+  const chipClass = (active: boolean) =>
+    // Shared styling helper for category and sort chips.
+    `inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
+      active
+        ? "bg-white text-black border-white shadow-sm"
+        : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
+    } focus-visible-ring`
+  const tabClass = (active: boolean) =>
+    `px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
+      active ? "bg-white text-black" : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
+    } focus-visible-ring`
 
   const normalizedQuery = debouncedQuery.trim().toLowerCase()
 
   const categoryFilteredPosts = useMemo(
+    // First-stage filter: category chips narrow the overall search space.
     () => (category === "all" ? posts : posts.filter((post) => post.category === category)),
     [posts, category],
   )
@@ -159,6 +210,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   }, [categoryFilteredPosts, displayNames, normalizedQuery])
 
   const sortedPosts = useMemo(() => {
+    // Sorting is applied after all filters/search are done.
     const postsToSort = [...matchingPosts]
     const toMillis = (timestamp: (typeof matchingPosts)[number]["timestamp"]) =>
       typeof timestamp?.toMillis === "function" ? timestamp.toMillis() : 0
@@ -195,9 +247,19 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   }, [categoryFilteredPosts])
 
   const filteredUserSummaries = useMemo(() => {
+    // User list supports searching by name/handle/userId and post text relevance.
     if (!normalizedQuery) {
       return userSummaries
     }
+
+    // Build a quick lookup so we avoid scanning all posts for every user row.
+    const queryMatchesByUser = new Map<string, boolean>()
+    categoryFilteredPosts.forEach((post) => {
+      const title = post.title.toLowerCase()
+      const description = post.description.toLowerCase()
+      if (!title.includes(normalizedQuery) && !description.includes(normalizedQuery)) return
+      queryMatchesByUser.set(post.userId, true)
+    })
 
     return userSummaries.filter((summary) => {
       const displayName = displayNames[summary.userId]?.toLowerCase() ?? ""
@@ -210,52 +272,61 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
         return true
       }
 
-      return categoryFilteredPosts.some((post) => {
-        if (post.userId !== summary.userId) return false
-        const title = post.title.toLowerCase()
-        const description = post.description.toLowerCase()
-        return title.includes(normalizedQuery) || description.includes(normalizedQuery)
-      })
+      return queryMatchesByUser.get(summary.userId) === true
     })
   }, [categoryFilteredPosts, displayNames, normalizedQuery, userSummaries])
 
   const hashtagSummaries = useMemo(() => {
     // Surface category chips with aggregated performance stats.
+    const statsByCategory = new Map<string, { count: number; likes: number; views: number }>()
+    categoryFilteredPosts.forEach((post) => {
+      if (!post.category) return
+      const entry = statsByCategory.get(post.category) ?? { count: 0, likes: 0, views: 0 }
+      entry.count += 1
+      entry.likes += post.likes?.length ?? 0
+      entry.views += post.viewCount ?? 0
+      statsByCategory.set(post.category, entry)
+    })
+
     return STANDUP_CATEGORIES.map((categoryItem) => {
-      const filtered = categoryFilteredPosts.filter((post) => post.category === categoryItem.value)
-      const totalLikes = filtered.reduce((sum, post) => sum + (post.likes?.length ?? 0), 0)
-      const totalViews = filtered.reduce((sum, post) => sum + (post.viewCount ?? 0), 0)
+      const stats = statsByCategory.get(categoryItem.value)
       return {
         category: categoryItem,
-        count: filtered.length,
-        likes: totalLikes,
-        views: totalViews,
+        count: stats?.count ?? 0,
+        likes: stats?.likes ?? 0,
+        views: stats?.views ?? 0,
       }
     }).filter((entry) => entry.count > 0)
   }, [categoryFilteredPosts])
 
   useEffect(() => {
+    // Lazy-load display names for visible userIds to avoid repeated fetches every render.
     const userIds = Array.from(new Set(categoryFilteredPosts.map((post) => post.userId)))
-    const missingIds = userIds.filter((id) => !(id in displayNames))
+    const missingIds = userIds.filter((id) => !(id in displayNames) && !loadingDisplayNameIdsRef.current.has(id))
     if (missingIds.length === 0) return
 
     let isMounted = true
+    missingIds.forEach((id) => loadingDisplayNameIdsRef.current.add(id))
 
     const loadDisplayNames = async () => {
-      const entries = await Promise.all(
-        missingIds.map(async (id) => {
-          const name = await getDisplayName(id)
-          return [id, name?.trim() ?? ""] as const
-        }),
-      )
-      if (!isMounted) return
-      setDisplayNames((current) => {
-        const next = { ...current }
-        for (const [id, name] of entries) {
-          next[id] = name
-        }
-        return next
-      })
+      try {
+        const entries = await Promise.all(
+          missingIds.map(async (id) => {
+            const name = await getDisplayName(id)
+            return [id, name?.trim() ?? ""] as const
+          }),
+        )
+        if (!isMounted) return
+        setDisplayNames((current) => {
+          const next = { ...current }
+          for (const [id, name] of entries) {
+            next[id] = name
+          }
+          return next
+        })
+      } finally {
+        missingIds.forEach((id) => loadingDisplayNameIdsRef.current.delete(id))
+      }
     }
 
     void loadDisplayNames()
@@ -266,6 +337,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   }, [categoryFilteredPosts, displayNames])
 
   const availableCategories = useMemo(() => {
+    // Show only categories that currently have content; falls back to full list when feed is empty.
     const categories = new Set<string>()
     posts.forEach((post) => {
       if (post.category) {
@@ -279,6 +351,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   }, [posts])
 
   useEffect(() => {
+    // If selected category disappears (e.g. after live updates), reset safely to "all".
     if (category === "all") return
     const stillAvailable = availableCategories.some((categoryOption) => categoryOption.value === category)
     if (!stillAvailable) {
@@ -289,6 +362,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
   return (
     <div className="h-full bg-black text-white overflow-y-auto">
       <div className="max-w-md mx-auto">
+        {/* Header/search/filters region */}
         <div className="p-4 pt-8" role="search" aria-label="Search comedians, sets, and categories">
           <h1 className="text-2xl font-bold mb-4">Discover</h1>
 
@@ -307,15 +381,8 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
           <div className="-mx-4 mb-4" role="radiogroup" aria-label="Filter by category">
             <div className="flex flex-wrap gap-2 px-4 pb-3 pt-4">
               <button
-                onClick={() => {
-                  setCategory("all")
-                  haptic.light()
-                }}
-                className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
-                  category === "all"
-                    ? "bg-white text-black border-white shadow-sm"
-                    : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
-                } focus-visible-ring`}
+                onClick={() => setCategoryWithHaptic("all")}
+                className={chipClass(category === "all")}
                 role="radio"
                 aria-checked={category === "all"}
               >
@@ -324,15 +391,8 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               {availableCategories.map((categoryOption) => (
                 <button
                   key={categoryOption.value}
-                  onClick={() => {
-                    setCategory(categoryOption.value)
-                    haptic.light()
-                  }}
-                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
-                    category === categoryOption.value
-                      ? "bg-white text-black border-white shadow-sm"
-                      : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
-                  } focus-visible-ring`}
+                  onClick={() => setCategoryWithHaptic(categoryOption.value)}
+                  className={chipClass(category === categoryOption.value)}
                   role="radio"
                   aria-checked={category === categoryOption.value}
                 >
@@ -343,59 +403,25 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
           </div>
 
           <div className="flex gap-4 mb-6" role="tablist" aria-label="Search sections">
-            <button
-              onClick={() => {
-                setActiveTab("trending")
-                haptic.light()
-              }}
-              className={`px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
-                activeTab === "trending"
-                  ? "bg-white text-black"
-                  : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
-              } focus-visible-ring`}
-              role="tab"
-              aria-selected={activeTab === "trending"}
-              aria-controls="search-content"
-            >
-              Trending
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("users")
-                haptic.light()
-              }}
-              className={`px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
-                activeTab === "users"
-                  ? "bg-white text-black"
-                  : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
-              } focus-visible-ring`}
-              role="tab"
-              aria-selected={activeTab === "users"}
-              aria-controls="search-content"
-            >
-              Comics
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("hashtags")
-                haptic.light()
-              }}
-              className={`px-4 py-2 rounded-full font-medium active-scale tap-highlight-none transition-all duration-300 ease-out ${
-                activeTab === "hashtags"
-                  ? "bg-white text-black"
-                  : "bg-gray-800 text-gray-300 hover:text-white hover:scale-102"
-              } focus-visible-ring`}
-              role="tab"
-              aria-selected={activeTab === "hashtags"}
-              aria-controls="search-content"
-            >
-              Tags
-            </button>
+            {SEARCH_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setTabWithHaptic(tab.key)}
+                className={tabClass(activeTab === tab.key)}
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                aria-controls="search-content"
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="px-4 pb-10" role="tabpanel" id="search-content" aria-live="polite">
+          {/* Body region switches by loading state and selected tab. */}
           {loading ? (
+            // Tab-specific skeletons help preserve layout while data is streaming in.
             activeTab === "trending" ? (
                 <div className="grid grid-cols-2 gap-3" role="list">
                 {Array.from({ length: 6 }).map((_, index) => (
@@ -429,24 +455,21 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
             )
           ) : activeTab === "trending" ? (
             <div>
+              {/* "Trending" mixes search + sorting over clip cards. */}
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp size={20} className="text-red-500" />
                 <h2 className="text-lg font-semibold">Trending Stand-Up</h2>
               </div>
               <div className="-mx-4 mb-4" role="radiogroup" aria-label="Sort by">
                 <div className="flex flex-wrap gap-2 px-4 pb-2 pt-3">
-                  {sortOptions.map((option) => (
+                  {SORT_OPTIONS.map((option) => (
                     <button
                       key={option.key}
                       onClick={() => {
                         setSortOrder(option.key)
                         haptic.light()
                       }}
-                      className={`inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium whitespace-nowrap active-scale tap-highlight-none transition-all duration-300 ease-out flex-shrink-0 border leading-none ${
-                        sortOrder === option.key
-                          ? "bg-white text-black border-white shadow-sm"
-                          : "bg-gray-800/90 text-gray-200 border-gray-700 hover:text-white hover:scale-102"
-                      } focus-visible-ring`}
+                      className={chipClass(sortOrder === option.key)}
                       role="radio"
                       aria-checked={sortOrder === option.key}
                     >
@@ -480,11 +503,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                     )}
                     <button
                       type="button"
-                      onClick={() => {
-                        setCategory("all")
-                        setSortOrder("trending")
-                        haptic.light()
-                      }}
+                      onClick={resetFilters}
                       className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white active-scale tap-highlight-none transition-all duration-300 ease-out focus-visible-ring"
                       aria-label="Reset filters"
                     >
@@ -553,6 +572,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
             </div>
           ) : activeTab === "users" ? (
             <div>
+              {/* "Comics" surfaces creator-level aggregates with follow actions. */}
               <h2 className="text-lg font-semibold mb-4">Comedians</h2>
               {filteredUserSummaries.length === 0 ? (
                 <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
@@ -565,11 +585,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setCategory("all")
-                      setSortOrder("trending")
-                      haptic.light()
-                    }}
+                    onClick={resetFilters}
                     className="inline-flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded-full px-4 py-2 text-sm font-medium text-white active-scale tap-highlight-none transition-all duration-300 ease-out focus-visible-ring"
                     aria-label="Reset filters"
                   >
@@ -579,7 +595,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
               ) : (
                 <div className="space-y-4">
                   {filteredUserSummaries.map((summary) => (
-                    <SearchUserRow
+                    <MemoizedSearchUserRow
                       key={summary.userId}
                       userId={summary.userId}
                       sets={summary.sets}
@@ -599,6 +615,8 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                       }
                       onRequestAuth={onRequestAuth}
                       displayNameHint={displayNames[summary.userId]}
+                      currentUserId={user?.uid}
+                      canFollowUsers={!!user && !user.isAnonymous}
                     />
                   ))}
                 </div>
@@ -606,6 +624,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
             </div>
           ) : (
             <div>
+              {/* "Tags" is category-level discovery with quick jump back into filtered results. */}
               <h2 className="text-lg font-semibold mb-4">Comedy Tags</h2>
               {hashtagSummaries.length === 0 ? (
                 <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
@@ -626,7 +645,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                           <Hash size={20} className="text-gray-400" />
                         </div>
                         <div>
-                          <div className="font-semibold">#{categoryItem.label.replace(/\s+/g, "").toLowerCase()}</div>
+                          <div className="font-semibold">#{toHandle(categoryItem.label)}</div>
                           <div className="text-sm text-gray-400">
                             {count} {count === 1 ? "set" : "sets"} · {formatLargeNumber(views)} views · {formatLargeNumber(likes)} laughs
                           </div>
@@ -634,10 +653,7 @@ export default function SearchPage({ onSelectPost, onRequestAuth }: SearchPagePr
                       </div>
                       <button
                         className="text-gray-400 hover:text-white transition-all duration-200 ease-out active-scale tap-highlight-none"
-                        onClick={() => {
-                          setCategory(categoryItem.value)
-                          haptic.light()
-                        }}
+                        onClick={() => setCategoryWithHaptic(categoryItem.value)}
                       >
                         <TrendingUp size={20} />
                       </button>
@@ -703,12 +719,9 @@ function MiniProfileSheet({
 }: MiniProfileSheetProps) {
   const { user } = useAuth()
   const fetchedName = useDisplayName(userId)
-  const preferredName = displayNameHint && displayNameHint.length > 0 ? displayNameHint : fetchedName ?? ""
-  const displayName = preferredName.trim().length > 0 ? preferredName : "Anonymous Comedian"
-  const handle = useMemo(
-    () => (preferredName.trim().length > 0 ? preferredName : userId).replace(/\s+/g, "").toLowerCase(),
-    [preferredName, userId],
-  )
+  const preferredName = getPreferredName(displayNameHint, fetchedName, "")
+  const displayName = preferredName || "Anonymous Comedian"
+  const handle = useMemo(() => toHandle(preferredName || userId), [preferredName, userId])
   const avatar = useMemo(() => buildAvatarPlaceholder(displayName || userId), [displayName, userId])
   const canFollow = !!user && !user.isAnonymous && user.uid !== userId
   const followLabel = canFollow ? (isFollowing ? "Following" : "Follow") : "Sign in"

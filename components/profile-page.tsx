@@ -11,6 +11,7 @@ import { buildAvatarPlaceholder, formatLargeNumber, getErrorMessage, sanitizeDis
 import { GridItemSkeleton } from "@/components/skeletons"
 import { useToast } from "@/components/toast-provider"
 import { useDisplayName } from "@/hooks/use-display-name"
+import { useUserProfileLite } from "@/hooks/use-user-profile-lite"
 import { usePlaybackSettings } from "@/components/playback-settings-provider"
 import { useFocusTrap } from "@/hooks/use-focus-trap"
 import { useHapticFeedback } from "@/hooks/use-haptic-feedback"
@@ -20,12 +21,18 @@ interface ProfilePageProps {
   onRequestAuth: () => void
   onNavigateToTab?: (tab: string) => void
 }
+const PROFILE_TABS = [
+  { key: "videos", label: "Sets", icon: Grid },
+  { key: "liked", label: "Liked", icon: Heart },
+] as const
 
 export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToTab }: ProfilePageProps) {
   const { user, logout, loading: authLoading, error: authError } = useAuth()
   const { posts, loading: postsLoading } = usePostsContext()
+  // "videos" and "liked" are the two profile content panes.
   const [activeTab, setActiveTab] = useState("videos")
   const savedDisplayName = useDisplayName(user?.uid)
+  const profileMeta = useUserProfileLite(user?.uid)
   const [displayName, setDisplayName] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
@@ -38,8 +45,57 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
   const stageNameMaxLength = 40
   const [showSaveSuccess, setShowSaveSuccess] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
+  const showProfileFeedback = (
+    message: string,
+    variant: "success" | "error",
+    toastType?: Parameters<typeof showToast>[1],
+  ) => {
+    setFeedback(message)
+    setFeedbackVariant(variant)
+    if (toastType) showToast(message, toastType)
+  }
+  // Keep tab switching + haptic behavior consistent everywhere this is called.
+  const selectTab = (tab: "videos" | "liked") => {
+    setActiveTab(tab)
+    haptic.light()
+  }
+  // Shared skeleton grid used by both "Sets" and "Liked" while content is loading.
+  const renderGridSkeleton = (prefix: string) => (
+    <div className="grid grid-cols-3 gap-1">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <GridItemSkeleton key={`${prefix}-${index}`} />
+      ))}
+    </div>
+  )
+  const renderPostGrid = (items: typeof userPosts) => (
+    // Shared grid renderer for uploaded and liked posts.
+    <div className="grid grid-cols-3 gap-1">
+      {items.map((post) => (
+        <div
+          key={post.id}
+          className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
+          onClick={() => {
+            haptic.light()
+            onSelectPost(post.id)
+          }}
+        >
+          {post.thumbnailURL ? (
+            <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
+          ) : (
+            <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
+          )}
+          <div className="absolute bottom-2 left-2">
+            <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
+              {formatLargeNumber(post.viewCount ?? 0)} views
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 
   useEffect(() => {
+    // Keep input synced with persisted stage name, with a deterministic fallback for first-time users.
     if (savedDisplayName) {
       setDisplayName(savedDisplayName)
     } else if (user) {
@@ -48,6 +104,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
   }, [savedDisplayName, user])
 
   const userPosts = useMemo(() => {
+    // Clips uploaded by the current comedian.
     if (!user || user.isAnonymous) return []
     return posts.filter((post) => post.userId === user.uid)
   }, [posts, user])
@@ -64,6 +121,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
   )
 
   const likedPosts = useMemo(() => {
+    // Clips liked by this user (used for the "Liked" tab).
     if (!user || user.isAnonymous) return []
     return posts.filter((post) => post.likes?.includes(user.uid))
   }, [posts, user])
@@ -72,6 +130,9 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
     () => buildAvatarPlaceholder((displayName || user?.uid) ?? "guest"),
     [displayName, user?.uid],
   )
+  const isOfficialAccount = profileMeta?.accountType === "editorial" || profileMeta?.isSeedAccount === true
+  const officialLabel = profileMeta?.officialLabel?.trim() || "Official OpenMic"
+  // Anonymous users can browse but some profile actions are gated.
   const isAnonymous = !user || user.isAnonymous
 
   const handleSave = async () => {
@@ -80,23 +141,17 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
     try {
       // Persist the chosen stage name so other users can see it in feed/search.
       await updateDisplayName(user.uid, displayName.trim())
-      setFeedback("Stage name saved")
-      setFeedbackVariant("success")
-      showToast("Stage name saved", "success")
+      showProfileFeedback("Stage name saved", "success", "success")
       haptic.medium()
       setShowSaveSuccess(true)
       setTimeout(() => setShowSaveSuccess(false), 800)
     } catch (error) {
       console.error("Failed to update display name", error)
       if (error instanceof DisplayNameUnavailableError) {
-        setFeedback("That stage name is already taken.")
-        setFeedbackVariant("error")
-        showToast("That stage name is already taken.", "error")
+        showProfileFeedback("That stage name is already taken.", "error", "error")
       } else {
         const message = getErrorMessage(error)
-        setFeedback(message)
-        setFeedbackVariant("error")
-        showToast(message, "error")
+        showProfileFeedback(message, "error", "error")
       }
       setShowSaveSuccess(false)
     } finally {
@@ -125,18 +180,14 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
         document.execCommand("copy")
         document.body.removeChild(textarea)
       }
-      setFeedback("Profile link copied")
-      setFeedbackVariant("success")
-      showToast("Profile link copied", "success")
+      showProfileFeedback("Profile link copied", "success", "success")
       haptic.light()
       setCopySuccess(true)
       setTimeout(() => setCopySuccess(false), 700)
       setTimeout(() => setFeedback(null), 2000)
     } catch (error) {
       console.error("Failed to copy profile link", error)
-      setFeedback("Unable to copy link")
-      setFeedbackVariant("error")
-      showToast("Unable to copy link", "error")
+      showProfileFeedback("Unable to copy link", "error", "error")
       setCopySuccess(false)
     }
   }
@@ -144,6 +195,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
   return (
     <div className="h-full bg-black text-white overflow-y-auto">
       <div className="max-w-md mx-auto">
+        {/* Profile header + account actions */}
         <div className="flex items-center justify-between p-4 pt-8">
           <h1 className="text-xl font-bold">Profile</h1>
           <div className="flex items-center gap-2">
@@ -174,6 +226,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
         </div>
 
         <div className="px-4 pb-6">
+          {/* Identity/stats/editor section */}
           <div className="flex items-center gap-6 mb-4">
             <Image
               src={avatar}
@@ -200,6 +253,11 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
 
           {!user?.isAnonymous && user?.email && (
             <p className="mb-4 text-sm text-gray-400">Signed in as {user.email}</p>
+          )}
+          {isOfficialAccount && (
+            <p className="mb-4 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/90">
+              {officialLabel}
+            </p>
           )}
 
           {authError && <p className="mb-3 text-sm text-red-400">{authError}</p>}
@@ -286,47 +344,33 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
 
         <div className="border-b border-gray-800" role="tablist" aria-label="Profile tabs">
           <div className="flex">
-            <button
-              onClick={() => {
-                setActiveTab("videos")
-                haptic.light()
-              }}
-              className={`flex-1 py-3 flex items-center justify-center gap-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
-                activeTab === "videos" ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
-              } focus-visible-ring`}
-              role="tab"
-              aria-selected={activeTab === "videos"}
-              aria-controls="profile-content"
-            >
-              <Grid size={18} />
-              <span className="font-medium">Sets</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("liked")
-                haptic.light()
-              }}
-              className={`flex-1 py-3 flex items-center justify-center gap-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
-                activeTab === "liked" ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
-              } focus-visible-ring`}
-              role="tab"
-              aria-selected={activeTab === "liked"}
-              aria-controls="profile-content"
-            >
-              <Heart size={18} />
-              <span className="font-medium">Liked</span>
-            </button>
+            {PROFILE_TABS.map((tab) => {
+              const Icon = tab.icon
+              const isActive = activeTab === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => selectTab(tab.key)}
+                  className={`flex-1 py-3 flex items-center justify-center gap-2 active-scale tap-highlight-none transition-all duration-300 ease-out ${
+                    isActive ? "text-white border-b-2 border-white" : "text-gray-400 hover:text-gray-200"
+                  } focus-visible-ring`}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls="profile-content"
+                >
+                  <Icon size={18} />
+                  <span className="font-medium">{tab.label}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
         <div className="p-4" role="tabpanel" id="profile-content" aria-live="polite">
+          {/* Tab body section: uploaded sets vs liked sets */}
           {activeTab === "videos" ? (
             postsLoading && userPosts.length === 0 ? (
-              <div className="grid grid-cols-3 gap-1">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <GridItemSkeleton key={`profile-upload-skeleton-${index}`} />
-                ))}
-              </div>
+              renderGridSkeleton("profile-upload-skeleton")
             ) : userPosts.length === 0 ? (
               <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
                 <Grid size={48} className="text-gray-600" />
@@ -355,36 +399,10 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-1">
-                {userPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
-                    onClick={() => {
-                      haptic.light()
-                      onSelectPost(post.id)
-                    }}
-                  >
-                    {post.thumbnailURL ? (
-                      <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
-                    ) : (
-                      <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
-                    )}
-                    <div className="absolute bottom-2 left-2">
-                      <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                        {formatLargeNumber(post.viewCount ?? 0)} views
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              renderPostGrid(userPosts)
             )
           ) : postsLoading && likedPosts.length === 0 ? (
-            <div className="grid grid-cols-3 gap-1">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <GridItemSkeleton key={`profile-liked-skeleton-${index}`} />
-              ))}
-            </div>
+            renderGridSkeleton("profile-liked-skeleton")
           ) : likedPosts.length === 0 ? (
             <div className="flex flex-col items-center text-center gap-4 py-12 px-6">
               <Heart size={48} className="text-gray-600" />
@@ -406,29 +424,7 @@ export default function ProfilePage({ onSelectPost, onRequestAuth, onNavigateToT
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-1">
-              {likedPosts.map((post) => (
-                <div
-                  key={post.id}
-                  className="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden cursor-pointer hover-lift active-scale tap-highlight-none transition-all duration-300 ease-out"
-                  onClick={() => {
-                    haptic.light()
-                    onSelectPost(post.id)
-                  }}
-                >
-                  {post.thumbnailURL ? (
-                    <Image src={post.thumbnailURL} alt={post.title} fill className="object-cover" />
-                  ) : (
-                    <video src={post.videoURL} className="h-full w-full object-contain bg-black" muted loop playsInline />
-                  )}
-                  <div className="absolute bottom-2 left-2">
-                    <span className="text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                      {formatLargeNumber(post.viewCount ?? 0)} views
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            renderPostGrid(likedPosts)
           )}
         </div>
       </div>
@@ -451,6 +447,7 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
 
   useFocusTrap(sheetRef, true)
 
+  // Close with animation first, then unmount to avoid abrupt visual jumps.
   const closeSheet = useCallback(() => {
     if (isClosing) return
     setIsClosing(true)
@@ -460,6 +457,7 @@ function SettingsSheet({ onClose }: SettingsSheetProps) {
   }, [isClosing, onClose])
 
   useEffect(() => {
+    // Accessibility: focus first interactive control when sheet opens.
     const firstFocusable = sheetRef.current?.querySelector<HTMLElement>(
       'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
     )

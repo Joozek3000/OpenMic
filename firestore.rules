@@ -14,20 +14,24 @@ service cloud.firestore {
       return postData.userId is string && isOwner(postData.userId);
     }
 
+    function isAdmin() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     function isCommentOwner(commentData) {
       return commentData.userId is string && isOwner(commentData.userId);
     }
 
     // Common field validation utilities for documents that include user entered text.
-    function optionalStringMax(map data, string field, int maxLength) {
+    function optionalStringMax(data, field, maxLength) {
       return !(field in data) || (data[field] is string && data[field].size() <= maxLength);
     }
 
-    function requiredStringMax(map data, string field, int maxLength) {
+    function requiredStringMax(data, field, maxLength) {
       return field in data && data[field] is string && data[field].size() > 0 && data[field].size() <= maxLength;
     }
 
-    function matchesLowercase(map data, string sourceField, string lowerField) {
+    function matchesLowercase(data, sourceField, lowerField) {
       return !(sourceField in data) || (
         lowerField in data &&
         data[sourceField] is string &&
@@ -87,19 +91,110 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
 
-      allow create: if isOwner(userId) && validateUserWrite();
+      allow create: if (isOwner(userId) && validateUserOwnerCreate())
+        || (isAdmin() && validateUserAdminWrite());
 
-      allow update: if isOwner(userId) && validateUserWrite();
+      allow update: if (isOwner(userId) && validateUserOwnerUpdate())
+        || (isAdmin() && validateUserAdminWrite());
 
       allow delete: if false; // Profile deletion is not supported – handled through account management flows.
 
-      function validateUserWrite() {
+      function hasProtectedEditorialFields(data) {
+        return data.keys().hasAny([
+          "accountType",
+          "isSeedAccount",
+          "officialLabel",
+          "isVerified",
+          "handle",
+          "handleLower",
+          "createdAt",
+          "createdBy"
+        ]);
+      }
+
+      function protectedEditorialFieldsUnchanged() {
+        return !request.resource.data.diff(resource.data).changedKeys().hasAny([
+          "accountType",
+          "isSeedAccount",
+          "officialLabel",
+          "isVerified",
+          "handle",
+          "handleLower",
+          "createdAt",
+          "createdBy"
+        ]);
+      }
+
+      function validateCommonUserFields() {
         return matchesLowercase(request.resource.data, "displayName", "displayNameLower")
+          && matchesLowercase(request.resource.data, "handle", "handleLower")
           && optionalStringMax(request.resource.data, "displayName", 60)
           && optionalStringMax(request.resource.data, "displayNameLower", 60)
+          && optionalStringMax(request.resource.data, "officialLabel", 80)
+          && optionalStringMax(request.resource.data, "handle", 40)
+          && optionalStringMax(request.resource.data, "handleLower", 40)
+          && optionalStringMax(request.resource.data, "cityName", 80)
+          && optionalStringMax(request.resource.data, "countryCode", 4)
+          && (!( "accountType" in request.resource.data) || request.resource.data.accountType in ["user", "editorial"])
+          && (!( "isSeedAccount" in request.resource.data) || request.resource.data.isSeedAccount is bool)
+          && (!( "isVerified" in request.resource.data) || request.resource.data.isVerified is bool)
+          && (!( "createdBy" in request.resource.data) || request.resource.data.createdBy is string)
+          && (!( "createdAt" in request.resource.data) || request.resource.data.createdAt is timestamp)
           && optionalStringMax(request.resource.data, "bio", 280)
+          && (!( "geoLocation" in request.resource.data) || (
+            request.resource.data.geoLocation is map &&
+            request.resource.data.geoLocation.lat is number &&
+            request.resource.data.geoLocation.lng is number
+          ))
+          && (!( "cityLocation" in request.resource.data) || (
+            request.resource.data.cityLocation is map &&
+            request.resource.data.cityLocation.lat is number &&
+            request.resource.data.cityLocation.lng is number
+          ))
           && (!("following" in request.resource.data) || request.resource.data.following is list);
       }
+
+      function validateUserOwnerCreate() {
+        return validateCommonUserFields() && isOwner(userId) && !hasProtectedEditorialFields(request.resource.data);
+      }
+
+      function validateUserOwnerUpdate() {
+        return validateCommonUserFields() && isOwner(userId) && protectedEditorialFieldsUnchanged();
+      }
+
+      function validateUserAdminWrite() {
+        return validateCommonUserFields();
+      }
+    }
+
+    // Canonical handle registry for case-insensitive uniqueness.
+    match /handles/{handleLower} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin() && validateHandleWrite(handleLower);
+
+      function validateHandleWrite(handleLower) {
+        return request.resource.data.uid is string
+          && request.resource.data.createdAt is timestamp
+          && request.resource.data.type in ["user", "editorial"]
+          && handleLower == handleLower.lower();
+      }
+    }
+
+    // MVP admin model: existence of /admins/{uid} marks admin status.
+    match /admins/{adminUid} {
+      allow read: if isOwner(adminUid) || isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Venues and events are publicly readable, admin-seeded only.
+    match /venues/{venueId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if false;
     }
   }
 }

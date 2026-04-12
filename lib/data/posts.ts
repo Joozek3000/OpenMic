@@ -30,6 +30,7 @@ import { getErrorMessage, isNetworkError } from "@/lib/utils"
 const postsCollection = collection(db, "posts")
 
 function mapDocToPost(docSnap: QueryDocumentSnapshot<DocumentData>): Post {
+  // Convert untyped Firestore payload into the app's stable Post shape.
   const data = docSnap.data()
   return {
     id: docSnap.id,
@@ -134,6 +135,7 @@ export function listenToPosts(
 }
 
 export async function fetchMorePosts(lastDoc: QueryDocumentSnapshot<DocumentData>, pageSize: number) {
+  // Cursor pagination keeps reads cheap as the feed grows.
   const postsQuery = query(postsCollection, orderBy("timestamp", "desc"), startAfter(lastDoc), limit(pageSize))
 
   const snapshot = await getDocs(postsQuery)
@@ -177,6 +179,7 @@ export async function createPost(input: CreatePostInput) {
 }
 
 export async function toggleLike(postId: string, userId: string, shouldLike: boolean) {
+  // Uses atomic array operations to avoid race conditions across devices.
   const postRef = doc(db, "posts", postId)
   try {
     await updateDoc(postRef, {
@@ -209,7 +212,8 @@ export function listenToComments(
           const data = docSnap.data()
           return {
             id: docSnap.id,
-            text: data.text,
+            // Support legacy `text` comments while standardizing new writes to `content`.
+            text: data.content ?? data.text ?? "",
             userId: data.userId,
             timestamp: data.timestamp,
           } satisfies CommentDoc
@@ -250,7 +254,7 @@ export async function addComment({ postId, text, userId }: CreateCommentInput) {
   const commentsRef = collection(db, "posts", postId, "comments")
   try {
     await addDoc(commentsRef, {
-      text,
+      content: text,
       userId,
       timestamp: serverTimestamp(),
     })
@@ -261,8 +265,13 @@ export async function addComment({ postId, text, userId }: CreateCommentInput) {
       console.warn("Failed to increment comment count", countError)
     })
   } catch (error) {
+    const code = String((error as { code?: unknown })?.code ?? "").toLowerCase()
     const retryable = isNetworkError(error)
-    const message = retryable ? "Network issue. Try again." : "Can't add comment."
+    const message = code.includes("permission")
+      ? "You don't have permission to add comments."
+      : retryable
+        ? "Network issue. Try again."
+        : "Can't add comment."
 
     throw new FirestoreError(message, {
       code: "app/add-comment",

@@ -18,10 +18,23 @@ import { getErrorMessage, getMobileOptimizations, isRetryableError } from "@/lib
 
 const PostsContext = createContext<PostsContextValue | undefined>(undefined)
 
+// Retry policy for transient network/Firestore listener failures.
 const MAX_RETRY_ATTEMPTS = 3
 const INITIAL_RETRY_DELAY = 1000
+
+function getRetryDelay(attempt: number) {
+  return INITIAL_RETRY_DELAY * Math.pow(2, attempt)
+}
+
+function mergeUniquePosts(current: Post[], incoming: Post[]) {
+  if (incoming.length === 0) return current
+  const currentIds = new Set(current.map((post) => post.id))
+  const additions = incoming.filter((post) => !currentIds.has(post.id))
+  return additions.length > 0 ? [...current, ...additions] : current
+}
+
 export function PostsProvider({ children }: { children: ReactNode }) {
-  // Store the live results from the Firestore subscription.
+  // Store live feed state from Firestore; UI reads this context everywhere.
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -34,11 +47,14 @@ export function PostsProvider({ children }: { children: ReactNode }) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting")
 
+  // Device/network-aware tuning loaded once to keep behavior stable during a session.
   const optimizationRef = useRef(getMobileOptimizations())
   const initialPageSize = optimizationRef.current.initialPageSize
 
+  // Mutable refs hold values needed by async callbacks without re-rendering.
   const unsubscribeRef = useRef<(() => void) | null>(null)
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const connectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postsRef = useRef<Post[]>([])
 
   const clearRetryTimer = useCallback(() => {
@@ -48,8 +64,16 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const clearConnectionMessageTimer = useCallback(() => {
+    if (connectionMessageTimeoutRef.current) {
+      clearTimeout(connectionMessageTimeoutRef.current)
+      connectionMessageTimeoutRef.current = null
+    }
+  }, [])
+
   const setupListenerWithRetry = useCallback(
     (attempt = 0) => {
+      // Always tear down previous subscription before creating a new one.
       if (unsubscribeRef.current) {
         unsubscribeRef.current()
         unsubscribeRef.current = null
@@ -71,8 +95,10 @@ export function PostsProvider({ children }: { children: ReactNode }) {
         setLoading(true)
       }
 
+      // Single subscription entry point with retry/backoff and timeout recovery.
       const unsubscribe = listenToPosts(
         (postList, lastDocument) => {
+          // Preserve paginated items already loaded while replacing "top of feed" live snapshot.
           const baseIds = new Set(postList.map((post) => post.id))
           const appended = postsRef.current.filter((post) => !baseIds.has(post.id))
           const combinedPosts = [...postList, ...appended]
@@ -91,26 +117,33 @@ export function PostsProvider({ children }: { children: ReactNode }) {
           setHasMore(more)
         },
         (firestoreError) => {
+          // Listener hard error path (permission, unavailable, etc).
+          const clearListener = () => {
+            unsubscribe()
+            unsubscribeRef.current = null
+          }
+
+          const retryLater = (nextAttempt: number) => {
+            setIsRetrying(true)
+            setError(undefined)
+            setConnectionStatus("retrying")
+            clearRetryTimer()
+            retryTimeoutRef.current = setTimeout(() => {
+              setupListenerWithRetry(nextAttempt)
+            }, getRetryDelay(attempt))
+          }
+
           const retryable = isRetryableError(firestoreError)
           const message = getErrorMessage(firestoreError)
 
           if (retryable && attempt < MAX_RETRY_ATTEMPTS) {
-            unsubscribe()
-            unsubscribeRef.current = null
-            setIsRetrying(true)
-            setError(undefined)
-            setConnectionStatus("retrying")
             const nextAttempt = attempt + 1
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt)
-            clearRetryTimer()
-            retryTimeoutRef.current = setTimeout(() => {
-              setupListenerWithRetry(nextAttempt)
-            }, delay)
+            clearListener()
+            retryLater(nextAttempt)
             return
           }
 
-          unsubscribe()
-          unsubscribeRef.current = null
+          clearListener()
           setIsRetrying(false)
           setListenerStalled(false)
           setConnectionStatus("error")
@@ -118,23 +151,30 @@ export function PostsProvider({ children }: { children: ReactNode }) {
           setLoading(false)
         },
         () => {
-          if (attempt < MAX_RETRY_ATTEMPTS) {
+          // Initial snapshot timeout path: no explicit Firestore error, but stream appears stalled.
+          const clearListener = () => {
+            unsubscribe()
+            unsubscribeRef.current = null
+          }
+
+          const retryLater = (nextAttempt: number) => {
             setListenerStalled(true)
             setError(undefined)
             setConnectionStatus("retrying")
-            const nextAttempt = attempt + 1
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt)
             clearRetryTimer()
-            unsubscribe()
-            unsubscribeRef.current = null
             retryTimeoutRef.current = setTimeout(() => {
               setupListenerWithRetry(nextAttempt)
-            }, delay)
+            }, getRetryDelay(attempt))
+          }
+
+          if (attempt < MAX_RETRY_ATTEMPTS) {
+            const nextAttempt = attempt + 1
+            clearListener()
+            retryLater(nextAttempt)
             return
           }
 
-          unsubscribe()
-          unsubscribeRef.current = null
+          clearListener()
           setListenerStalled(true)
           setIsRetrying(false)
           setConnectionStatus("error")
@@ -150,6 +190,7 @@ export function PostsProvider({ children }: { children: ReactNode }) {
   )
 
   const loadMorePosts = useCallback(async () => {
+    // Pagination is cursor-based; this avoids loading full feed repeatedly.
     if (loadingMore || !hasMore || !lastDoc) {
       return
     }
@@ -159,7 +200,7 @@ export function PostsProvider({ children }: { children: ReactNode }) {
       const { posts: nextPosts, lastDoc: nextCursor, hasMore: more } = await fetchMorePosts(lastDoc, initialPageSize)
       setLastDoc(nextCursor)
       if (nextPosts.length > 0) {
-        const merged = [...postsRef.current, ...nextPosts]
+        const merged = mergeUniquePosts(postsRef.current, nextPosts)
         postsRef.current = merged
         setPosts(merged)
         setHasMore(more)
@@ -176,9 +217,11 @@ export function PostsProvider({ children }: { children: ReactNode }) {
   }, [hasMore, initialPageSize, lastDoc, loadingMore])
 
   useEffect(() => {
+    // Browser network events are used as signals to reset/restart listeners.
     const handleOnline = () => {
+      clearConnectionMessageTimer()
       setConnectionMessage("Connection restored")
-      setTimeout(() => setConnectionMessage(undefined), 3000)
+      connectionMessageTimeoutRef.current = setTimeout(() => setConnectionMessage(undefined), 3000)
       setRetryCount(0)
       setListenerStalled(false)
       setError(undefined)
@@ -186,6 +229,7 @@ export function PostsProvider({ children }: { children: ReactNode }) {
       setupListenerWithRetry(0)
     }
     const handleOffline = () => {
+      clearConnectionMessageTimer()
       setConnectionMessage("Offline. Changes won't sync.")
       setConnectionStatus("offline")
     }
@@ -194,12 +238,14 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     window.addEventListener("offline", handleOffline)
 
     return () => {
+      clearConnectionMessageTimer()
       window.removeEventListener("online", handleOnline)
       window.removeEventListener("offline", handleOffline)
     }
-  }, [setupListenerWithRetry])
+  }, [clearConnectionMessageTimer, setupListenerWithRetry])
 
   useEffect(() => {
+    // Initial listener setup on mount.
     setupListenerWithRetry(0)
 
     return () => {
@@ -209,25 +255,12 @@ export function PostsProvider({ children }: { children: ReactNode }) {
       }
       clearRetryTimer()
       postsRef.current = []
-      setLastDoc(undefined)
-      setHasMore(true)
-      setLoadingMore(false)
-      setIsRetrying(false)
-      setListenerStalled(false)
-      setRetryCount(0)
-      setConnectionStatus("connecting")
+      clearConnectionMessageTimer()
     }
-  }, [clearRetryTimer, setupListenerWithRetry])
-
-  useEffect(() => {
-    if (postsRef.current.length > 0) {
-      setIsRetrying(false)
-      setListenerStalled(false)
-      setConnectionStatus("online")
-    }
-  }, [posts.length])
+  }, [clearConnectionMessageTimer, clearRetryTimer, setupListenerWithRetry])
 
   const contextualError = useMemo(() => {
+    // Priority order: reconnecting status > stalled state > concrete error > transient connection note.
     if (isRetrying) {
       const attemptNumber = Math.min(retryCount + 1, MAX_RETRY_ATTEMPTS + 1)
       return `Reconnecting… (${attemptNumber}/${MAX_RETRY_ATTEMPTS + 1})`

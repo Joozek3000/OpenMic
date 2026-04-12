@@ -32,7 +32,32 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+function resolveResetContinueUrl(origin: string) {
+  // In local development, always use the live origin (port can change between 3000/3001).
+  try {
+    const current = new URL(origin)
+    if (current.hostname === "localhost" || current.hostname === "127.0.0.1") {
+      return new URL("/reset-password", current).toString()
+    }
+  } catch {
+    // Fall through to env-based parsing.
+  }
+
+  // Prefer an explicit app URL when provided, but sanitize accidental annotations.
+  const raw = process.env.NEXT_PUBLIC_APP_URL
+  const normalized = raw?.split("->").pop()?.trim() ?? ""
+  if (normalized) {
+    try {
+      return new URL("/reset-password", normalized).toString()
+    } catch {
+      // Ignore invalid env values and fall back to current origin.
+    }
+  }
+  return new URL("/reset-password", origin).toString()
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // `user` can be anonymous or fully registered; both are valid sessions for this app.
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -97,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(undefined)
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password)
+      // Defer profile syncing to the pendingCredential effect so sign-in and sign-up share one code path.
       setPendingCredential(credential)
     } catch (authError) {
       console.error("Failed to sign in", authError)
@@ -119,6 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(undefined)
     try {
       const credential = EmailAuthProvider.credential(email, password)
+      // This upgrades the current anonymous user into an email/password account.
       const linked = await linkWithCredential(auth.currentUser, credential)
       setPendingCredential(linked)
     } catch (linkError) {
@@ -147,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (typeof window !== "undefined") {
         actionSettings = {
-          url: `${window.location.origin}/reset-password`,
+          url: resolveResetContinueUrl(window.location.origin),
           handleCodeInApp: true,
         }
       }
@@ -177,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!pendingCredential) return
 
+    // Run profile creation once Firebase confirms authentication succeeded.
     const commit = async () => {
       try {
         await ensureUserProfile(pendingCredential.user.uid)

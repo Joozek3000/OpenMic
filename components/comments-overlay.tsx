@@ -73,6 +73,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   const haptic = useHapticFeedback()
   const [isClosing, setIsClosing] = useState(false)
 
+  // Close with short animation instead of instant unmount.
   const closeOverlay = useCallback(() => {
     if (isClosing) return
     setIsClosing(true)
@@ -82,6 +83,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   }, [isClosing, onClose])
 
   useEffect(() => {
+    // Live Firestore subscription keeps comments in sync in real time.
     const unsubscribe = listenToComments(
       postId,
       (nextComments) => {
@@ -102,14 +104,17 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   }, [postId, showToast])
 
   useEffect(() => {
+    // Push comment count back to parent so feed badges stay current.
     onCommentCountChange?.(postId, comments.length)
   }, [comments.length, onCommentCountChange, postId])
 
   const handleSubmit = async () => {
+    // Guard rails: no auth, no text, or in-flight post means no-op.
     if (!user || !newComment.trim() || disableActions || posting) return
     setPosting(true)
     try {
       await addComment({ postId, text: newComment.trim(), userId: user.uid })
+      // Clear input only after successful write.
       setNewComment("")
       haptic.medium()
     } catch (submitError) {
@@ -140,6 +145,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
   useFocusTrap(overlayRef, true)
 
   useEffect(() => {
+    // Accessibility: place focus inside dialog on open.
     const firstFocusable = overlayRef.current?.querySelector<HTMLElement>(
       'button, input, textarea, [tabindex]:not([tabindex="-1"])',
     )
@@ -159,6 +165,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
       }`}
       onKeyDown={handleKeyDown}
       onClick={() => {
+        // Click on backdrop closes; click inside panel does not.
         if (isClosing) return
         haptic.light()
         closeOverlay()
@@ -250,6 +257,7 @@ export default function CommentsOverlay({ postId, onClose, disableActions, onCom
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
                 onKeyDown={(event) => {
+                  // Enter submits quickly; Shift+Enter reserved for multiline behavior if upgraded later.
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()
                     haptic.light()

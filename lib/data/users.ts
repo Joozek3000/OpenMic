@@ -19,6 +19,7 @@ import { FirestoreError } from "@/lib/types"
 import { getErrorMessage, isNetworkError } from "@/lib/utils"
 
 const displayNameCache = new Map<string, string | null>()
+const userProfileCache = new Map<string, UserProfile | null>()
 
 export class DisplayNameUnavailableError extends Error {
   constructor(name: string) {
@@ -49,6 +50,8 @@ export async function ensureUserProfile(userId: string) {
         following: [],
         displayNameLower: null,
       })
+      userProfileCache.delete(userId)
+      displayNameCache.delete(userId)
     }
   } catch (error) {
     const retryable = isNetworkError(error)
@@ -83,6 +86,53 @@ export async function getDisplayName(userId: string) {
   return undefined
 }
 
+export async function getUserProfileLite(userId: string) {
+  if (userProfileCache.has(userId)) {
+    return userProfileCache.get(userId) ?? undefined
+  }
+
+  try {
+    const userRef = doc(db, "users", userId)
+    const snapshot = await getDoc(userRef)
+    if (!snapshot.exists()) {
+      userProfileCache.set(userId, null)
+      return undefined
+    }
+
+    const data = snapshot.data()
+    const profile = {
+      uid: userId,
+      displayName: typeof data.displayName === "string" ? data.displayName : undefined,
+      displayNameLower: typeof data.displayNameLower === "string" ? data.displayNameLower : null,
+      following: Array.isArray(data.following) ? data.following : [],
+      updatedAt: data.updatedAt,
+      accountType: data.accountType === "editorial" ? "editorial" : "user",
+      isSeedAccount: data.isSeedAccount === true,
+      officialLabel: typeof data.officialLabel === "string" ? data.officialLabel : undefined,
+      isVerified: data.isVerified === true,
+      handle: typeof data.handle === "string" ? data.handle : undefined,
+      handleLower: typeof data.handleLower === "string" ? data.handleLower : undefined,
+      createdAt: data.createdAt,
+      createdBy: typeof data.createdBy === "string" ? data.createdBy : undefined,
+      geoLocation:
+        data.geoLocation && typeof data.geoLocation.lat === "number" && typeof data.geoLocation.lng === "number"
+          ? { lat: data.geoLocation.lat, lng: data.geoLocation.lng }
+          : undefined,
+      cityLocation:
+        data.cityLocation && typeof data.cityLocation.lat === "number" && typeof data.cityLocation.lng === "number"
+          ? { lat: data.cityLocation.lat, lng: data.cityLocation.lng }
+          : undefined,
+    } satisfies UserProfile
+
+    userProfileCache.set(userId, profile)
+    displayNameCache.set(userId, profile.displayName ?? null)
+    return profile
+  } catch (error) {
+    console.warn("Failed to fetch user profile lite", error)
+    return undefined
+  }
+}
+
 export async function updateDisplayName(userId: string, displayName: string) {
   const trimmed = displayName.trim()
   if (!trimmed) {
@@ -114,6 +164,7 @@ export async function updateDisplayName(userId: string, displayName: string) {
       { merge: true },
     )
     displayNameCache.set(userId, trimmed)
+    userProfileCache.delete(userId)
   } catch (error) {
     if (error instanceof DisplayNameUnavailableError) {
       throw error
@@ -132,19 +183,7 @@ export async function updateDisplayName(userId: string, displayName: string) {
 
 export async function getUserProfile(userId: string) {
   try {
-    const userRef = doc(db, "users", userId)
-    const snapshot = await getDoc(userRef)
-    if (!snapshot.exists()) {
-      return undefined
-    }
-
-    const data = snapshot.data()
-    return {
-      uid: userId,
-      displayName: data.displayName,
-      updatedAt: data.updatedAt,
-      following: data.following ?? [],
-    } satisfies UserProfile
+    return await getUserProfileLite(userId)
   } catch (error) {
     console.warn("Failed to fetch user profile", error)
     return undefined
@@ -158,6 +197,7 @@ export async function toggleFollow(userId: string, targetId: string, shouldFollo
       following: shouldFollow ? arrayUnion(targetId) : arrayRemove(targetId),
       updatedAt: serverTimestamp(),
     })
+    userProfileCache.delete(userId)
   } catch (error) {
     const retryable = isNetworkError(error)
     const message = retryable

@@ -1,0 +1,18 @@
+[
+  {
+    "handle": "openmic_london",
+    "displayName": "OpenMic London",
+    "officialLabel": "Official OpenMic • London",
+    "cityName": "London",
+    "countryCode": "GB",
+    "isVerified": true
+  },
+  {
+    "handle": "openmic_editorial",
+    "displayName": "OpenMic Editorial",
+    "officialLabel": "Official OpenMic",
+    "cityName": "Global",
+    "countryCode": "GB",
+    "isVerified": true
+  }
+]

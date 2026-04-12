@@ -95,8 +95,19 @@ export interface CommentDoc {
 export interface UserProfile {
   uid: string
   displayName?: string
+  displayNameLower?: string | null
   updatedAt?: Timestamp
   following?: string[]
+  geoLocation?: GeoLocation
+  cityLocation?: GeoLocation
+  accountType?: "user" | "editorial"
+  isSeedAccount?: boolean
+  officialLabel?: string
+  isVerified?: boolean
+  handle?: string
+  handleLower?: string
+  createdAt?: Timestamp
+  createdBy?: string
 }
 
 export interface CreatePostInput {
@@ -131,4 +142,70 @@ export interface PostsContextValue {
   loadMorePosts: () => Promise<void>
   hasMore: boolean
   loadingMore: boolean
+}
+
+export interface GeoLocation {
+  lat: number
+  lng: number
+}
+
+export type MapEntityType = "event" | "venue" | "comedian" | "video"
+
+interface MapEntityBase {
+  id: string
+  entityType: MapEntityType
+  geoLocation: GeoLocation
+}
+
+export interface MapEvent extends MapEntityBase {
+  entityType: "event"
+  title: string
+  description: string
+  venueId: string
+  startTime?: Timestamp | null
+  endTime?: Timestamp | null
+  lineup: string[]
+  ticketUrl?: string
+  isFree?: boolean
+  coverImage?: string
+  comedyType?: string
+}
+
+export interface MapVenue extends MapEntityBase {
+  entityType: "venue"
+  name: string
+  description: string
+  address?: string
+  image?: string
+  tags: string[]
+  eventIds: string[]
+}
+
+export interface MapComedian extends MapEntityBase {
+  entityType: "comedian"
+  displayName: string
+  profileImage?: string
+}
+
+export interface MapVideo extends MapEntityBase {
+  entityType: "video"
+  videoId: string
+  thumbnail?: string
+  comedianId: string
+  venueId?: string
+  timestamp?: Timestamp | null
+  title?: string
+}
+
+export type MapEntity = MapEvent | MapVenue | MapComedian | MapVideo
+
+export interface MapFilters {
+  showEvents: boolean
+  showVenues: boolean
+  showComedians: boolean
+  showVideos: boolean
+  dateFrom?: Date
+  dateTo?: Date
+  comedyType?: string
+  radiusKm: number
 }

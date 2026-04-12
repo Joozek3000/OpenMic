@@ -1,0 +1,279 @@
+OpenMic Project Status Report
+Generated: 2026-04-09
+==============================
+
+WHAT IS OPENMIC
+---------------
+A TikTok-style short-form stand-up comedy platform.
+Stack: Next.js 15 + React 18 + Tailwind CSS + Firebase (Auth, Firestore, Storage) + Mapbox GL
+Current state: "practically MVP" (latest commit message)
+
+
+========================================
+FEATURES THAT ARE DONE / WORKING
+========================================
+
+1. AUTHENTICATION
+   - Anonymous sign-in on first load (zero-friction entry)
+   - Email/password account upgrade from anonymous
+   - Password reset flow (Firebase action links -> /reset-password page)
+   - Session persistence across tabs (IndexedDB)
+   - Retry logic with exponential backoff (3 attempts)
+   Status: COMPLETE
+
+2. VIDEO UPLOAD
+   - Supports MP4, MOV, WebM up to 200MB
+   - Auto-generates thumbnail from video frame (720x1280 JPEG)
+   - Title, description, category selection (10 comedy categories)
+   - Uploads to Firebase Storage, metadata to Firestore
+   - Duration validation (max 3 minutes)
+   Status: COMPLETE
+
+3. VIDEO FEED (Main Screen)
+   - Real-time Firestore listener with live updates
+   - Cursor-based pagination (efficient scrolling)
+   - View count tracking via Intersection Observer
+   - Autoplay with browser compatibility detection
+   - Mute/unmute toggle with preference persistence
+   - Loop toggle
+   - Share to clipboard
+   - Delete own posts
+   - Mobile and desktop responsive
+   - Keyboard navigation (arrow keys)
+   Status: COMPLETE
+
+4. SOCIAL FEATURES
+   - Like/unlike with optimistic UI updates
+   - Follow/unfollow system (Set-based state tracking)
+   - Comments (real-time, nested Firestore sub-collection)
+   - Comment count live updates
+   - Delete own comments
+   - Display name system with uniqueness enforcement
+   Status: COMPLETE
+
+5. SEARCH & DISCOVERY TAB
+   - Sort by: Trending (views), Newest, Most Liked
+   - Category filtering (10 comedy types)
+   - User/comedian text search
+   - Hashtag/tag search
+   - Mini profile cards with stats (views, likes, sets)
+   - Actionable empty states
+   Status: COMPLETE
+
+6. EXPLORE TAB
+   - Category-based curation
+   - "For You" all-content view
+   - Dynamic category chips based on available content
+   - View-ordered posts within categories
+   - Pagination
+   Status: COMPLETE
+
+7. MAP / LOCATION DISCOVERY
+   - Mapbox GL integration (dark theme)
+   - Four entity types: Events, Venues, Comedians, Videos
+   - GeoJSON clustering with zoom-aware visibility
+   - Browser geolocation + timezone fallback
+   - Distance-based ordering (Haversine formula)
+   - Radius filter (5km - 50km)
+   - Quick time filters (Tonight, This Week, All)
+   - Sidebar entity list + mobile bottom sheet (collapse/half/full)
+   - Location search hints (London, Manchester, NYC, etc.)
+   - Detail pages: /events/[id], /venues/[id], /comedians/[id], /videos/[id]
+   Status: COMPLETE (but relies on mock data - see "Partial" section)
+
+8. PROFILE PAGE
+   - Display name customization (max 40 chars, unique)
+   - Two tabs: "Sets" (own uploads) + "Liked" (favorited videos)
+   - View count badges on thumbnails
+   - Follow count display
+   - Playback settings accessible from profile
+   - Sign out (re-signs in as anonymous)
+   Status: COMPLETE
+
+9. ACCESSIBILITY
+   - Focus trapping in modals
+   - Skip links
+   - Keyboard navigation
+   - ARIA labels throughout
+   - Semantic HTML and role attributes
+   Status: COMPLETE
+
+10. ERROR HANDLING & RESILIENCE
+    - Network error detection with retry + backoff
+    - Firestore listener timeout + re-subscription
+    - Connection status indicator (online/offline/connecting/retrying)
+    - User-friendly error toasts
+    - Transient vs permanent error classification
+    Status: COMPLETE
+
+11. PWA SUPPORT
+    - Service worker with precaching
+    - Offline cache strategies (network-first for data, cache-first for assets)
+    - Recovery script clears stale caches
+    - Manifest generation
+    Status: COMPLETE but DISABLED by default (enable with NEXT_PUBLIC_ENABLE_PWA=true)
+
+12. EDITORIAL / SEED ACCOUNTS
+    - Admin SDK seed script (scripts/createSeedAccounts.ts)
+    - Two official accounts: @openmic_london, @openmic_editorial
+    - Verified badge system
+    - Handle registry with admin-only writes
+    Status: COMPLETE
+
+
+========================================
+FEATURES THAT ARE PARTIAL / IN PROGRESS
+========================================
+
+1. MAP DATA DENSITY
+   - Falls back to MOCK DATA (lib/data/map-mocks.ts) when Firestore is sparse
+   - Mock events/venues/comedians are hardcoded for demo purposes
+   - No real-time streaming of map entities (uses 1-minute cache)
+   - Comedy type filter has mismatch (venue tags vs event comedyType field)
+   - No ticket purchase integration (ticketUrl links are placeholder examples)
+   Priority: HIGH (listed in PROJECT_CONTEXT.md)
+
+2. COMMENTS SYSTEM
+   - Legacy support for both "text" and "content" fields (migration incomplete)
+   - Flat list only - no nested replies/threads
+   - No rich text or emoji picker
+   - No edit capability (comments are immutable by design in rules)
+   Priority: MEDIUM
+
+3. SEARCH
+   - Client-side filtering only over loaded posts (no server-side full-text search)
+   - No Firestore indexes for text search
+   - Limited to whatever posts are loaded in memory
+   Priority: MEDIUM
+
+
+========================================
+FEATURES THAT ARE MISSING / NOT BUILT
+========================================
+
+HIGH PRIORITY (from PROJECT_CONTEXT.md + common MVP needs):
+
+1. CONTENT MODERATION & SAFETY
+   - No report/flag mechanism for posts or comments
+   - No content filtering or review queue
+   - No admin dashboard for moderation
+   - No word filter or spam detection
+   - Only protection: owner can delete own content
+   => This is critical before any public launch
+
+2. NOTIFICATIONS
+   - No push notifications
+   - No in-app notification center
+   - No alerts for: new followers, likes on your posts, comments, etc.
+
+3. VIDEO PROCESSING / TRANSCODING
+   - Videos are stored and served as-is (raw upload)
+   - No HLS/DASH adaptive streaming
+   - No quality variants (360p/720p/1080p)
+   - No server-side compression or optimization
+   - Could cause bandwidth/performance issues at scale
+
+MEDIUM PRIORITY:
+
+4. ALGORITHMIC FEED / RECOMMENDATIONS
+   - Feed is chronological only (no personalization)
+   - No "For You" algorithm based on watch history
+   - View counts stored but not used for ranking beyond sort option
+
+5. USER PROFILES - EXTENDED
+   - No profile photo/avatar upload (uses generated SVG placeholders)
+   - No bio editing from the app (field exists in schema but no UI)
+   - No link to social media accounts
+   - No profile banner image
+
+6. DIRECT MESSAGING
+   - No DM system between users
+   - No creator-fan communication channel
+
+7. ANALYTICS & INSIGHTS
+   - No creator analytics dashboard
+   - No engagement metrics visualization
+   - No event tracking (GA, Mixpanel, etc.)
+
+8. ONBOARDING FLOW
+   - No tutorial or walkthrough for new users
+   - No "suggested follows" on first visit
+   - Relies entirely on implicit UX
+
+LOWER PRIORITY:
+
+9. VIDEO EDITING TOOLS
+   - No in-app trim, crop, or filter tools
+   - No caption/subtitle overlay
+
+10. DUETS / COLLABORATIONS
+    - No remix or duet features (split-screen, response videos)
+
+11. STORIES / EPHEMERAL CONTENT
+    - No time-limited content (disappearing posts)
+
+12. MONETIZATION
+    - No tip/donate system
+    - No subscription tiers
+    - No ad integration
+
+13. LOCALIZATION
+    - English only, no i18n framework
+
+14. TESTING
+    - No unit tests
+    - No integration tests
+    - No E2E tests
+    - No test framework configured (no jest, vitest, playwright, etc.)
+
+
+========================================
+TECH DEBT & KNOWN ISSUES
+========================================
+
+1. Comment field legacy: code handles both "text" and "content" field names
+2. Map mock data fallback masks the fact that real data pipeline is empty
+3. PWA disabled by default due to stability concerns
+4. TypeScript skipLibCheck enabled (hides potential type issues)
+5. No testing infrastructure whatsoever
+6. Hard-coded map zoom constants (10, 12, 13, 11) not configurable
+7. Device detection recomputed on every provider init
+8. All state management via Context API (may not scale well)
+9. Next.js 15 canary version (not stable release)
+
+
+========================================
+SECURITY REVIEW
+========================================
+
+GOOD:
+- Comprehensive Firestore rules with ownership checks
+- Storage rules enforce file type and size limits
+- Admin-only control for editorial fields and handle registry
+- Input sanitization (HTML escape, length checks, Unicode safety)
+- No secrets in client code (all via env vars)
+
+GAPS:
+- No rate limiting on uploads, comments, or likes
+- No CAPTCHA or bot protection
+- No content scanning for inappropriate material
+- Anonymous users can interact (like, comment) without verification
+
+
+========================================
+WHAT'S NEEDED FOR PUBLIC LAUNCH
+========================================
+
+Minimum to go live safely:
+  1. Content moderation - at least basic report/flag + admin review
+  2. Rate limiting - prevent spam/abuse
+  3. Video transcoding - serve adaptive quality streams
+  4. Real map data - replace mocks with actual venue/event pipeline
+  5. Tests - at least critical path E2E tests
+  6. Push notifications - basic engagement loop (new follower, comment)
+
+Nice to have for launch:
+  7. Profile photos
+  8. Bio editing
+  9. Onboarding flow
+  10. Basic creator analytics

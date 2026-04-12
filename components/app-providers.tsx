@@ -9,6 +9,7 @@ import { PostsProvider } from "@/components/posts-provider"
 import { PlaybackSettingsProvider } from "@/components/playback-settings-provider"
 import { ToastProvider } from "@/components/toast-provider"
 import { ConnectionStatusIndicator } from "@/components/connection-status-indicator"
+import { PwaRecovery } from "@/components/pwa-recovery"
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -19,6 +20,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             <PlaybackSettingsProvider>
               {/* FiltersProvider shares category state across Search & Explore tabs. */}
               <FiltersProvider>
+                <PwaRecovery />
                 {children}
                 <ConnectionStatusIndicator />
               </FiltersProvider>

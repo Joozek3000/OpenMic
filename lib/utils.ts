@@ -5,6 +5,7 @@ import { STANDUP_CATEGORIES } from "@/lib/constants"
 import { AppError, NetworkError } from "@/lib/types"
 
 export function formatLargeNumber(value: number) {
+  // UI-friendly compact number display for stats (views/likes/etc).
   if (value >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(1)}M`
   }
@@ -15,6 +16,7 @@ export function formatLargeNumber(value: number) {
 }
 
 export function getCategoryLabel(value: string) {
+  // Converts stored category key -> human-readable label for chips/cards.
   return STANDUP_CATEGORIES.find((category) => category.value === value)?.label ?? value
 }
 
@@ -28,7 +30,7 @@ export function formatRelativeTimestamp(timestamp?: Timestamp | null) {
   }
 }
 
-export function getInitials(seed: string) {
+function getInitials(seed: string) {
   if (!seed) return "?"
   const parts = seed.trim().split(/\s+/)
   if (parts.length === 1) {
@@ -38,6 +40,7 @@ export function getInitials(seed: string) {
 }
 
 export function buildAvatarPlaceholder(identifier: string) {
+  // SVG data URL keeps avatars deterministic without external image dependencies.
   const initials = getInitials(identifier)
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='#111827'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='Inter, sans-serif' font-size='28' fill='#F9FAFB'>${initials}</text></svg>`
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
@@ -51,7 +54,8 @@ const htmlEscapeMap: Record<string, string> = {
   "'": "&#039;",
 }
 
-export function sanitizeText(input: string) {
+function sanitizeText(input: string) {
+  // Basic text sanitization for user content that may be rendered in UI.
   if (!input) return ""
   const escaped = input.replace(/[&<>"']/g, (char) => htmlEscapeMap[char])
   return escaped
@@ -63,33 +67,14 @@ export function sanitizeText(input: string) {
 }
 
 export function sanitizeDisplayName(input: string) {
+  // Stricter than generic text: keep display names predictable and handle-friendly.
   return input
     .replace(/[^\p{L}\p{N}_\- ]+/gu, "")
     .replace(/\s+/g, " ")
     .trim()
 }
 
-export function validateDisplayName(name: string) {
-  const trimmed = name.trim()
-  if (trimmed.length < 3 || trimmed.length > 40) {
-    return { valid: false, error: "Stage name must be between 3 and 40 characters." }
-  }
-
-  if (!/^[\p{L}\p{N}_\- ]+$/u.test(trimmed)) {
-    return {
-      valid: false,
-      error: "Stage name can only include letters, numbers, spaces, hyphens, and underscores.",
-    }
-  }
-
-  if (/^[_\- ]|[_\- ]$/.test(trimmed)) {
-    return { valid: false, error: "Stage name cannot start or end with special characters." }
-  }
-
-  return { valid: true }
-}
-
-export function validateTextLength(text: string, min: number, max: number, fieldName: string) {
+function validateTextLength(text: string, min: number, max: number, fieldName: string) {
   const length = text.trim().length
   if (length < min) {
     return { valid: false, error: `${fieldName} must be at least ${min} character${min === 1 ? "" : "s"}.` }
@@ -106,6 +91,7 @@ export function sanitizeAndValidate(
   input: string,
   options: { minLength?: number; maxLength?: number; fieldName: string },
 ) {
+  // Shared helper used by forms (upload/profile/etc) to avoid inconsistent validation behavior.
   const sanitized = sanitizeText(input)
   const { minLength = 0, maxLength = Infinity, fieldName } = options
   const validation = validateTextLength(sanitized, minLength, maxLength, fieldName)
@@ -120,6 +106,7 @@ const MAX_VIDEO_BYTES = 209_715_200 // 200MB
 const DEFAULT_MAX_DURATION = 180 // seconds
 
 export function validateVideoFile(file: File) {
+  // File-level guard before expensive metadata parsing/upload.
   if (!ALLOWED_VIDEO_TYPES.has(file.type)) {
     return { valid: false, error: "Unsupported format. Use MP4, MOV, or WebM." }
   }
@@ -132,6 +119,7 @@ export function validateVideoFile(file: File) {
 }
 
 export async function getVideoDuration(file: File) {
+  // Reads metadata locally in browser; no upload required to validate length.
   return new Promise<number>((resolve, reject) => {
     const video = document.createElement("video")
     video.preload = "metadata"
@@ -172,6 +160,7 @@ const AUTOPLAY_TEST_VIDEO =
   "data:video/mp4;base64,AAAAHGZ0eXBpc29tAAAAAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAIAAAAF21kYXQAAABQaXMtAAAAHGlsc3QAAAAUAAAABAAAAAEAAQAAAgAAAAEAAwAAAAEAAAAAAAAAAAAAAAEAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAA=="
 
 async function attemptPlay(video: HTMLVideoElement, muted: boolean, timeoutMs = 2000) {
+  // Small helper for autoplay detection: returns structured success/error info.
   video.muted = muted
   try {
     const playResult = video.play()
@@ -190,6 +179,7 @@ async function attemptPlay(video: HTMLVideoElement, muted: boolean, timeoutMs = 
 }
 
 export async function detectAutoplaySupport(): Promise<AutoplaySupport> {
+  // Cached capability probe so cards don't run expensive autoplay checks repeatedly.
   if (cachedAutoplaySupport) {
     return cachedAutoplaySupport
   }
@@ -233,6 +223,7 @@ export async function detectAutoplaySupport(): Promise<AutoplaySupport> {
 }
 
 export function canAutoplay(): AutoplaySupport {
+  // Fast synchronous accessor; returns cached support or safe default.
   if (cachedAutoplaySupport) {
     return cachedAutoplaySupport
   }
@@ -247,6 +238,7 @@ type NavigatorConnection = {
 }
 
 function getNavigatorConnection() {
+  // Handles vendor-prefixed Network Information APIs.
   if (typeof navigator === "undefined") {
     return undefined
   }
@@ -262,7 +254,7 @@ function getNavigatorConnection() {
 
 let cachedIsMobile: boolean | null = null
 
-export function isMobileDevice() {
+function isMobileDevice() {
   if (cachedIsMobile !== null) {
     return cachedIsMobile
   }
@@ -278,13 +270,7 @@ export function isMobileDevice() {
   return cachedIsMobile
 }
 
-export function getConnectionType() {
-  const connection = getNavigatorConnection()
-
-  return connection?.effectiveType ?? "unknown"
-}
-
-export function isSlowConnection() {
+function isSlowConnection() {
   const connection = getNavigatorConnection()
 
   if (!connection) {
@@ -304,6 +290,7 @@ export function isSlowConnection() {
 }
 
 export function getMobileOptimizations() {
+  // Centralized tuning point for feed/list fetch sizes and UI behavior by device/network.
   const isMobile = isMobileDevice()
   const slowNetwork = isSlowConnection()
   const reducedMotion =
@@ -345,7 +332,7 @@ function formatDuration(totalSeconds: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`
 }
 
-export function resizeCanvas(source: HTMLCanvasElement, maxWidth: number, maxHeight: number) {
+function resizeCanvas(source: HTMLCanvasElement, maxWidth: number, maxHeight: number) {
   const { width, height } = source
   let targetWidth = width
   let targetHeight = height
@@ -400,6 +387,7 @@ export async function optimizeThumbnail(
 }
 
 export function getErrorMessage(error: unknown) {
+  // Normalize unknown error shapes into a user-readable message.
   if (!error) return "Something went wrong. Please try again."
   if (error instanceof AppError) return error.message
   if (typeof error === "string") return error
@@ -414,6 +402,7 @@ export function getErrorMessage(error: unknown) {
 }
 
 export function isNetworkError(error: unknown) {
+  // Best-effort detection across Firebase errors, custom errors, and generic JS errors.
   if (!error) return false
   if (error instanceof NetworkError) return true
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "" ) : ""
@@ -424,6 +413,7 @@ export function isNetworkError(error: unknown) {
 }
 
 export function isRetryableError(error: unknown) {
+  // Retry policy used by withRetry and provider layers.
   if (!error) return false
   if (error instanceof AppError) return error.retryable
   if (isNetworkError(error)) return true
@@ -433,7 +423,7 @@ export function isRetryableError(error: unknown) {
   return retryableCodes.some((retryableCode) => code.includes(retryableCode))
 }
 
-export function sleep(ms: number) {
+function sleep(ms: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, ms)
   })
@@ -446,6 +436,7 @@ interface RetryOptions {
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}) {
+  // Generic retry wrapper with optional exponential backoff.
   const { maxAttempts = 3, delayMs = 500, backoff = true } = options
 
   let attempt = 0
