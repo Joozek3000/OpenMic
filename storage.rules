@@ -22,26 +22,40 @@ service firebase.storage {
       return request.resource.contentType == "image/jpeg";
     }
 
+    // Uploads carry the uploader's uid in custom metadata (set in lib/data/posts.ts).
+    function claimsOwnership() {
+      return request.resource.metadata.owner == request.auth.uid;
+    }
+
+    function ownsExisting() {
+      return resource.metadata.owner == request.auth.uid;
+    }
+
+    // New files must name the uploader as owner; existing files can only be replaced by their owner.
+    function canWrite() {
+      return isAuthenticated() && claimsOwnership() && (resource == null || ownsExisting());
+    }
+
     // Videos uploaded through the app live under videos/{uuid}.{ext}.
     match /videos/{videoId} {
       allow read: if isAuthenticated();
 
-      allow write: if isAuthenticated()
+      allow create, update: if canWrite()
         && isValidSize(209715200) // 200 MB cap – mirrors MAX_VIDEO_BYTES.
         && isVideoFile();
 
-      allow delete: if isAuthenticated();
+      allow delete: if isAuthenticated() && ownsExisting();
     }
 
     // Generated thumbnails are stored under thumbnails/{uuid}.jpg.
     match /thumbnails/{thumbnailId} {
       allow read: if isAuthenticated();
 
-      allow write: if isAuthenticated()
+      allow create, update: if canWrite()
         && isValidSize(5242880) // 5 MB max to keep assets lightweight.
         && isImageFile();
 
-      allow delete: if isAuthenticated();
+      allow delete: if isAuthenticated() && ownsExisting();
     }
   }
 }

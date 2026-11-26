@@ -22,7 +22,7 @@ import {
 } from "firebase/firestore"
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage"
 
-import { db, storage } from "@/lib/firebase"
+import { auth, db, storage } from "@/lib/firebase"
 import type { CommentDoc, CreateCommentInput, CreatePostInput, Post } from "@/lib/types"
 import { FirestoreError, NetworkError, StorageError } from "@/lib/types"
 import { getErrorMessage, isNetworkError } from "@/lib/utils"
@@ -365,6 +365,15 @@ export async function deletePost(post: Pick<Post, "id" | "fileId"> & { thumbnail
   }
 }
 
+// Storage rules only let the uploader overwrite or delete a file, so every upload records its owner.
+function ownerMetadata() {
+  const uid = auth.currentUser?.uid
+  if (!uid) {
+    throw new StorageError("Sign in to upload.", { code: "app/not-signed-in", retryable: false })
+  }
+  return { owner: uid }
+}
+
 export async function uploadVideoFile(file: File) {
   // Store raw clips under `videos/` with a random suffix to avoid collisions.
   try {
@@ -375,7 +384,9 @@ export async function uploadVideoFile(file: File) {
         : Math.random().toString(36).slice(2)
     const fileId = `videos/${uniqueId}.${extension}`
     const storageRef = ref(storage, fileId)
-    await uploadBytes(storageRef, file)
+    await uploadBytes(storageRef, file, {
+      customMetadata: ownerMetadata(),
+    })
     const videoURL = await getDownloadURL(storageRef)
     return { videoURL, fileId }
   } catch (error) {
@@ -409,6 +420,7 @@ export async function uploadThumbnailFile(blob: Blob) {
     const storageRef = ref(storage, fileId)
     await uploadBytes(storageRef, blob, {
       contentType: blob.type || "image/jpeg",
+      customMetadata: ownerMetadata(),
     })
     const thumbnailURL = await getDownloadURL(storageRef)
     return { thumbnailURL, fileId }
